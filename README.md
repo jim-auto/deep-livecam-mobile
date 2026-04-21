@@ -73,9 +73,12 @@ The Web demo lives in `web-demo/` and uses only relative paths:
 - `web-demo/styles.css`
 - `web-demo/app.js`
 
-It can be opened locally as a static file. For GitHub Pages, enable the included
-Pages workflow and publish from the repository's `main` branch. Once deployed,
-the demo URL will be available from the repository's Pages settings.
+Live demo:
+
+- https://jim-auto.github.io/deep-livecam-mobile/
+
+It can also be opened locally as a static file. The repository is configured to
+publish `web-demo/` through GitHub Pages using GitHub Actions.
 
 The current browser pipeline loads a sample or uploaded image, creates one
 deterministic center face box, and renders a dummy overlay on the output canvas.
