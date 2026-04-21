@@ -13,5 +13,17 @@ core/build/
 
 node_modules/
 dist/
+
+# Local camera/manual capture artifacts.
+captures/
+recordings/
+camera-captures/
+*.mp4
+*.mov
+*.m4v
+*.webm
+*.mkv
+*.avi
+
 .DS_Store
 Thumbs.db

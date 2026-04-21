@@ -11,7 +11,7 @@ The current demo runs a placeholder browser pipeline:
 1. Load a sample frame or uploaded image.
 2. Optionally open a smartphone front camera with `getUserMedia`.
 3. Detect one deterministic center face box.
-4. Draw a dummy swap overlay on the output canvas.
+4. Draw a synthetic pseudo swap face on the output canvas.
 
 Future browser inference work can replace the detector and swapper with ONNX
 Runtime Web, WebGPU/WebGL, or MediaPipe-backed implementations.

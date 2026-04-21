@@ -35,7 +35,7 @@ The project is in initial skeleton state.
 
 - Android: Kotlin app shell with still-image input and dummy face swap overlay.
 - Core: platform-neutral Kotlin pipeline contracts and deterministic dummy implementations.
-- Web demo: static upload, smartphone camera capture, and before/after canvas pipeline with placeholder detection.
+- Web demo: static upload, smartphone camera capture, and before/after canvas pipeline with placeholder detection and pseudo swap rendering.
 - Models: no real model files are included.
 - Inference: no real identity transfer is implemented yet.
 
@@ -81,9 +81,9 @@ It can also be opened locally as a static file. The repository is configured to
 publish `web-demo/` through GitHub Pages using GitHub Actions.
 
 The current browser pipeline loads a sample or uploaded image, creates one
-deterministic center face box, and renders a dummy overlay on the output canvas.
-On HTTPS hosts such as GitHub Pages, the demo can also open the phone's front
-camera and run the placeholder overlay loop in the browser.
+deterministic center face box, and renders a synthetic pseudo swap face on the
+output canvas. On HTTPS hosts such as GitHub Pages, the demo can also open the
+phone's front camera and run the pseudo swap loop in the browser.
 
 ## Roadmap
 

@@ -48,17 +48,17 @@
         <div class="control-group">
           <label for="backendSelect">Backend</label>
           <select id="backendSelect">
-            <option value="placeholder">Placeholder JS</option>
+            <option value="placeholder">Pseudo Swap JS</option>
             <option value="onnx" disabled>ONNX Runtime Web</option>
             <option value="webgpu" disabled>WebGPU</option>
             <option value="mediapipe" disabled>MediaPipe</option>
           </select>
         </div>
         <div class="control-group">
-          <label for="overlayStrength">Overlay</label>
+          <label for="overlayStrength">Swap amount</label>
           <input id="overlayStrength" type="range" min="0" max="100" value="62">
         </div>
-        <button id="runButton" type="button">Run placeholder pipeline</button>
+        <button id="runButton" type="button">Run pseudo swap</button>
         <p id="status" role="status">Ready.</p>
       </section>
     </main>

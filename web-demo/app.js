@@ -12,6 +12,7 @@ const overlayStrength = document.querySelector("#overlayStrength");
 const sourceMeta = document.querySelector("#sourceMeta");
 const engineMeta = document.querySelector("#engineMeta");
 const statusText = document.querySelector("#status");
+const syntheticSourceFace = createSyntheticSourceFace();
 
 class PlaceholderFaceDetector {
   detect(frame) {
@@ -38,11 +39,13 @@ class CanvasOverlayFaceSwapper {
       faces,
       overlays: faces.map((face, index) => ({
         face,
-        label: `dummy-swap-${index + 1}`,
+        label: `pseudo-swap-${index + 1}`,
         fill: `rgba(20, 184, 166, ${alpha / 255})`,
         stroke: "#0f766e",
+        source: syntheticSourceFace,
+        strength,
       })),
-      engineName: frame.live ? "placeholder-js-live" : "placeholder-js",
+      engineName: frame.live ? "pseudo-swap-js-live" : "pseudo-swap-js",
     };
   }
 }
@@ -119,7 +122,7 @@ async function startCamera() {
 
     cameraButton.textContent = "Stop camera";
     captureButton.disabled = false;
-    statusText.textContent = "Camera running with placeholder pipeline.";
+    statusText.textContent = "Camera running with pseudo swap pipeline.";
     startLiveLoop();
   } catch (error) {
     if (cameraStream) {
@@ -167,7 +170,7 @@ function startLiveLoop() {
 
       const now = performance.now();
       if (now - lastLiveStatusAt > 1000) {
-        statusText.textContent = `Live placeholder pipeline: ${frame.width}x${frame.height}.`;
+        statusText.textContent = `Live pseudo swap: ${frame.width}x${frame.height}.`;
         lastLiveStatusAt = now;
       }
     }
@@ -250,18 +253,61 @@ function drawFrameImage(ctx, frame) {
 function renderOverlays(ctx, result) {
   for (const overlay of result.overlays) {
     const rect = toCanvasRect(overlay.face, result.frame);
+    drawPseudoSwap(ctx, overlay, rect, result.frame);
+
     ctx.save();
-    ctx.fillStyle = overlay.fill;
     ctx.strokeStyle = overlay.stroke;
     ctx.lineWidth = Math.max(3, result.frame.width / 260);
     roundRect(ctx, rect.x, rect.y, rect.width, rect.height, 24);
-    ctx.fill();
     ctx.stroke();
     ctx.fillStyle = "#172033";
     ctx.font = `${Math.max(18, result.frame.width / 42)}px system-ui, sans-serif`;
     ctx.fillText(overlay.label, rect.x, Math.max(30, rect.y - 12));
     ctx.restore();
   }
+}
+
+function drawPseudoSwap(ctx, overlay, rect, frame) {
+  const faceWidth = rect.width * 0.86;
+  const faceHeight = rect.height * 0.94;
+  const faceX = rect.x + (rect.width - faceWidth) / 2;
+  const faceY = rect.y + rect.height * 0.02;
+  const blurRadius = Math.max(10, frame.width / 96);
+
+  ctx.save();
+  ctx.globalAlpha = 0.18 + overlay.strength * 0.82;
+  ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
+  ctx.shadowBlur = blurRadius;
+  ctx.shadowOffsetY = Math.max(2, frame.width / 320);
+  ctx.beginPath();
+  ctx.ellipse(
+    faceX + faceWidth / 2,
+    faceY + faceHeight / 2,
+    faceWidth / 2,
+    faceHeight / 2,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  ctx.clip();
+  ctx.drawImage(overlay.source, faceX, faceY, faceWidth, faceHeight);
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = overlay.strength * 0.26;
+  ctx.fillStyle = "#f4b6a3";
+  ctx.beginPath();
+  ctx.ellipse(
+    faceX + faceWidth / 2,
+    faceY + faceHeight / 2,
+    faceWidth / 2,
+    faceHeight / 2,
+    0,
+    0,
+    Math.PI * 2,
+  );
+  ctx.fill();
+  ctx.restore();
 }
 
 function frameFromVideo() {
@@ -340,6 +386,53 @@ function createSampleFrame() {
     height: canvas.height,
     sourceName: "sample",
   };
+}
+
+function createSyntheticSourceFace() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 640;
+  const ctx = canvas.getContext("2d");
+
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  ctx.fillStyle = "#2f3a4f";
+  ctx.beginPath();
+  ctx.ellipse(256, 300, 190, 245, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#f1c2aa";
+  ctx.beginPath();
+  ctx.ellipse(256, 315, 165, 218, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#c9856e";
+  ctx.beginPath();
+  ctx.ellipse(178, 330, 30, 42, 0, 0, Math.PI * 2);
+  ctx.ellipse(334, 330, 30, 42, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.fillStyle = "#172033";
+  ctx.beginPath();
+  ctx.ellipse(200, 290, 20, 13, 0, 0, Math.PI * 2);
+  ctx.ellipse(312, 290, 20, 13, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = "#8e4b42";
+  ctx.lineWidth = 12;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(218, 420);
+  ctx.quadraticCurveTo(256, 448, 294, 420);
+  ctx.stroke();
+
+  ctx.fillStyle = "rgba(255, 255, 255, 0.34)";
+  ctx.beginPath();
+  ctx.ellipse(206, 284, 6, 4, 0, 0, Math.PI * 2);
+  ctx.ellipse(318, 284, 6, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  return canvas;
 }
 
 function toCanvasRect(face, frame) {
