@@ -29,7 +29,7 @@ runtime stack.
 
 `web-demo` now loads MediaPipe Tasks Vision from a CDN. The default backend uses
 Face Landmarker to estimate eye, nose, mouth, and face-oval points for pseudo
-swap alignment and a simple contour mask. A lighter BlazeFace short-range
-detector backend remains available for comparison. The demo keeps a deterministic
-center fallback so GitHub Pages still works when the model, WASM files, or CDN
-are unavailable.
+swap alignment, a simple contour mask, edge feathering, and temporal smoothing.
+A lighter BlazeFace short-range detector backend remains available for comparison.
+The demo keeps a deterministic center fallback so GitHub Pages still works when
+the model, WASM files, or CDN are unavailable.

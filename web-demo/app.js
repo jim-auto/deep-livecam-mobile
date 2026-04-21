@@ -28,6 +28,8 @@ const FACE_OVAL_LANDMARKS = [
   397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
   172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
 ];
+const DETECTOR_SMOOTHING_ALPHA = 0.48;
+const LANDMARK_SMOOTHING_ALPHA = 0.36;
 
 class PlaceholderFaceDetector {
   detect(frame) {
@@ -100,9 +102,10 @@ class MediaPipeFaceDetector {
       }
 
       const result = this.detector.detectForVideo(frame.image, now);
-      const faces = this.toFaceBoxes(result, frame);
+      const rawFaces = this.toFaceBoxes(result, frame);
+      const faces = smoothFaceList(this.lastLiveFaces, rawFaces, DETECTOR_SMOOTHING_ALPHA);
       this.lastLiveFaces = faces;
-      this.lastLiveEngineName = faces.length ? "mediapipe-face-detector" : "mediapipe-no-face";
+      this.lastLiveEngineName = rawFaces.length ? "mediapipe-face-detector" : "mediapipe-no-face";
       this.lastLiveDetectionAt = now;
       return {
         faces: this.lastLiveFaces,
@@ -220,9 +223,10 @@ class MediaPipeFaceLandmarker {
       }
 
       const result = this.landmarker.detectForVideo(frame.image, now);
-      const faces = this.toFaceBoxes(result, frame);
+      const rawFaces = this.toFaceBoxes(result, frame);
+      const faces = smoothFaceList(this.lastLiveFaces, rawFaces, LANDMARK_SMOOTHING_ALPHA);
       this.lastLiveFaces = faces;
-      this.lastLiveEngineName = faces.length ? "mediapipe-face-landmarker" : "landmarker-no-face";
+      this.lastLiveEngineName = rawFaces.length ? "mediapipe-face-landmarker" : "landmarker-no-face";
       this.lastLiveDetectionAt = now;
       return {
         faces: this.lastLiveFaces,
@@ -647,6 +651,62 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+function smoothFaceList(previousFaces, nextFaces, alpha) {
+  if (!nextFaces.length) return [];
+  if (!previousFaces?.length) return nextFaces;
+
+  return nextFaces.map((face, index) => {
+    const previous = previousFaces[index];
+    if (!previous) return face;
+    return smoothFace(previous, face, alpha);
+  });
+}
+
+function smoothFace(previous, next, alpha) {
+  return {
+    ...next,
+    x: lerp(previous.x, next.x, alpha),
+    y: lerp(previous.y, next.y, alpha),
+    width: lerp(previous.width, next.width, alpha),
+    height: lerp(previous.height, next.height, alpha),
+    confidence: next.confidence,
+    alignment: smoothAlignment(previous.alignment, next.alignment, alpha),
+    mask: smoothMask(previous.mask, next.mask, alpha),
+  };
+}
+
+function smoothAlignment(previous, next, alpha) {
+  if (!next) return undefined;
+  if (!previous) return next;
+  return {
+    centerX: lerp(previous.centerX, next.centerX, alpha),
+    centerY: lerp(previous.centerY, next.centerY, alpha),
+    rotation: lerpAngle(previous.rotation, next.rotation, alpha),
+    eyeDistance: lerp(previous.eyeDistance, next.eyeDistance, alpha),
+  };
+}
+
+function smoothMask(previous, next, alpha) {
+  if (!next?.points?.length) return undefined;
+  if (!previous?.points?.length || previous.points.length !== next.points.length) return next;
+  return {
+    points: next.points.map((point, index) => ({
+      x: lerp(previous.points[index].x, point.x, alpha),
+      y: lerp(previous.points[index].y, point.y, alpha),
+      z: point.z || 0,
+    })),
+  };
+}
+
+function lerp(from, to, alpha) {
+  return from + (to - from) * alpha;
+}
+
+function lerpAngle(from, to, alpha) {
+  const delta = Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  return from + delta * alpha;
+}
+
 function renderOverlays(ctx, result) {
   for (const overlay of result.overlays) {
     const rect = toCanvasRect(overlay.face, result.frame);
@@ -694,10 +754,35 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   ctx.fill();
   ctx.restore();
 
+  drawFeatheredMaskEdge(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation, frame, overlay.strength);
+
   ctx.save();
   ctx.globalAlpha = 0.22 + overlay.strength * 0.32;
   ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
   ctx.lineWidth = Math.max(2, frame.width / 320);
+  applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawFeatheredMaskEdge(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation, frame, strength) {
+  const blur = Math.max(2, frame.width / 520);
+  const wideStroke = Math.max(12, frame.width / 70);
+  const narrowStroke = Math.max(4, frame.width / 210);
+
+  ctx.save();
+  ctx.globalAlpha = 0.16 + strength * 0.18;
+  ctx.filter = `blur(${blur}px)`;
+  ctx.strokeStyle = "rgba(242, 173, 152, 0.72)";
+  ctx.lineWidth = wideStroke;
+  applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
+  ctx.stroke();
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = 0.14 + strength * 0.12;
+  ctx.strokeStyle = "rgba(15, 23, 42, 0.18)";
+  ctx.lineWidth = narrowStroke;
   applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
   ctx.stroke();
   ctx.restore();

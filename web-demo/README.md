@@ -13,6 +13,8 @@ The current demo runs a buildless browser pipeline:
 3. Detect live camera landmarks with MediaPipe Face Landmarker when available.
 4. Use eye, nose, mouth, and face-oval landmarks to align and mask a synthetic
    pseudo swap face.
+5. Smooth live landmarks over time and feather the mask edge for a less rigid
+   overlay.
 
 The `MediaPipe Face Detector` backend is kept as a lighter comparison path, and
 the `Center Fallback` backend remains available for browsers that cannot load
