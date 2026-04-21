@@ -35,7 +35,7 @@ The project is in initial skeleton state.
 
 - Android: Kotlin app shell with still-image input and dummy face swap overlay.
 - Core: platform-neutral Kotlin pipeline contracts and deterministic dummy implementations.
-- Web demo: static upload, smartphone camera capture, and before/after canvas pipeline with placeholder detection and pseudo swap rendering.
+- Web demo: static upload, smartphone camera capture, MediaPipe face detection for live camera, and pseudo swap rendering.
 - Models: no real model files are included.
 - Inference: no real identity transfer is implemented yet.
 
@@ -80,10 +80,11 @@ Live demo:
 It can also be opened locally as a static file. The repository is configured to
 publish `web-demo/` through GitHub Pages using GitHub Actions.
 
-The current browser pipeline loads a sample or uploaded image, creates one
-deterministic center face box, and renders a synthetic pseudo swap face on the
-output canvas. On HTTPS hosts such as GitHub Pages, the demo can also open the
-phone's front camera and run the pseudo swap loop in the browser.
+The current browser pipeline loads a sample or uploaded image, opens a phone
+front camera on HTTPS hosts, and uses MediaPipe Face Detector for live camera
+face boxes when the browser can load the model. If MediaPipe cannot load, the
+demo falls back to the deterministic center box used by the original skeleton.
+The output is still a synthetic pseudo swap, not real identity transfer.
 
 ## Roadmap
 
@@ -91,7 +92,7 @@ phone's front camera and run the pseudo swap loop in the browser.
 2. Replace the dummy detector with a lightweight face detector.
 3. Evaluate ONNX Runtime Mobile, TensorFlow Lite, and MediaPipe for Android.
 4. Add model download/checksum handling outside the initial APK.
-5. Prototype ONNX Runtime Web or MediaPipe in `web-demo`.
+5. Extend the MediaPipe web path with landmarks or evaluate ONNX Runtime Web.
 6. Add face alignment, source face selection, masks, and blending.
 7. Add latency, memory, and thermal profiling for Android devices.
 8. Define contribution guidelines once the first real inference path lands.

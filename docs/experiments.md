@@ -21,6 +21,13 @@ runtime stack.
 1. Replace the dummy detector with a lightweight face detector.
 2. Add CameraX preview and route frames into `FrameProcessor`.
 3. Test ONNX Runtime Mobile with one small detector or landmark model.
-4. Mirror the same model in `web-demo` with ONNX Runtime Web.
+4. Compare the current MediaPipe web detector with ONNX Runtime Web.
 5. Measure frame latency, memory, APK size, model load time, and browser startup
    time before choosing the default runtime.
+
+## Current web experiment
+
+`web-demo` now loads MediaPipe Tasks Vision from a CDN and uses the BlazeFace
+short-range model for live camera face boxes. The demo keeps a deterministic
+center fallback so GitHub Pages still works when the model, WASM files, or CDN
+are unavailable.

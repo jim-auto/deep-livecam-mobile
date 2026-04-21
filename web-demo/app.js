@@ -9,6 +9,7 @@ const captureButton = document.querySelector("#captureButton");
 const imageInput = document.querySelector("#imageInput");
 const runButton = document.querySelector("#runButton");
 const overlayStrength = document.querySelector("#overlayStrength");
+const backendSelect = document.querySelector("#backendSelect");
 const sourceMeta = document.querySelector("#sourceMeta");
 const engineMeta = document.querySelector("#engineMeta");
 const statusText = document.querySelector("#status");
@@ -18,25 +19,157 @@ const resultPanel = document.querySelector("#resultPanel");
 const sourcePanel = document.querySelector("#sourcePanel");
 const syntheticSourceFace = createSyntheticSourceFace();
 
+const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
+const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
+const BLAZE_FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
+
 class PlaceholderFaceDetector {
   detect(frame) {
     const landscape = frame.width >= frame.height;
     const width = landscape ? 0.28 : 0.42;
     const height = landscape ? 0.46 : 0.34;
-    return [
-      {
-        x: (1 - width) / 2,
-        y: (1 - height) / 2,
-        width,
-        height,
-        confidence: 0.58,
-      },
-    ];
+    return {
+      faces: [
+        {
+          x: (1 - width) / 2,
+          y: (1 - height) / 2,
+          width,
+          height,
+          confidence: 0.58,
+        },
+      ],
+      engineName: "center-fallback",
+      ready: true,
+    };
+  }
+}
+
+class MediaPipeFaceDetector {
+  constructor(fallbackDetector) {
+    this.fallbackDetector = fallbackDetector;
+    this.detector = null;
+    this.loadingPromise = null;
+    this.failedReason = "";
+    this.lastLiveFaces = null;
+    this.lastLiveEngineName = "mediapipe-face-detector";
+    this.lastLiveDetectionAt = 0;
+    this.minLiveIntervalMs = 95;
+    this.mode = "VIDEO";
+  }
+
+  warmUp() {
+    if (this.detector || this.loadingPromise || this.failedReason) return;
+    this.loadingPromise = this.load().catch((error) => {
+      this.failedReason = error.message || "MediaPipe failed to load";
+      return null;
+    });
+  }
+
+  async detect(frame) {
+    this.warmUp();
+
+    if (!this.detector) {
+      if (this.loadingPromise) {
+        await Promise.race([this.loadingPromise, wait(0)]);
+      }
+      if (!this.detector) {
+        const fallback = this.fallbackDetector.detect(frame);
+        return {
+          ...fallback,
+          engineName: this.failedReason ? "center-fallback" : "mediapipe-loading",
+          ready: false,
+          note: this.failedReason,
+        };
+      }
+    }
+
+    if (frame.live) {
+      const now = performance.now();
+      if (this.lastLiveFaces !== null && now - this.lastLiveDetectionAt < this.minLiveIntervalMs) {
+        return {
+          faces: this.lastLiveFaces,
+          engineName: this.lastLiveEngineName,
+          ready: true,
+        };
+      }
+
+      const result = this.detector.detectForVideo(frame.image, now);
+      const faces = this.toFaceBoxes(result, frame);
+      if (faces.length) {
+        this.lastLiveFaces = faces;
+      } else if (!this.lastLiveFaces) {
+        this.lastLiveFaces = [];
+      }
+      this.lastLiveEngineName = faces.length ? "mediapipe-face-detector" : "mediapipe-no-face";
+      this.lastLiveDetectionAt = now;
+      return {
+        faces: this.lastLiveFaces,
+        engineName: this.lastLiveEngineName,
+        ready: true,
+      };
+    }
+
+    const fallback = this.fallbackDetector.detect(frame);
+    return {
+      ...fallback,
+      engineName: "center-fallback-image",
+      ready: true,
+    };
+  }
+
+  async load() {
+    const vision = await import(MEDIAPIPE_TASKS_URL);
+    const fileset = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
+    this.detector = await this.createDetector(vision, fileset, "GPU").catch(() => {
+      return this.createDetector(vision, fileset);
+    });
+  }
+
+  createDetector(vision, fileset, delegate) {
+    const baseOptions = {
+      modelAssetPath: BLAZE_FACE_MODEL_URL,
+    };
+    if (delegate) {
+      baseOptions.delegate = delegate;
+    }
+
+    return vision.FaceDetector.createFromOptions(fileset, {
+      baseOptions,
+      runningMode: this.mode,
+      minDetectionConfidence: 0.5,
+      minSuppressionThreshold: 0.3,
+    });
+  }
+
+  toFaceBoxes(result, frame) {
+    const detections = result?.detections || [];
+    return detections
+      .map((detection) => {
+        const box = detection.boundingBox;
+        if (!box) return null;
+
+        const originX = box.originX ?? box.origin_x ?? 0;
+        const originY = box.originY ?? box.origin_y ?? 0;
+        const width = clamp01(box.width / frame.width);
+        const height = clamp01(box.height / frame.height);
+        const rawX = clamp01(originX / frame.width);
+        const x = frame.mirrored ? clamp01(1 - rawX - width) : rawX;
+        const y = clamp01(originY / frame.height);
+        const score = detection.categories?.[0]?.score ?? 0.5;
+        return {
+          x,
+          y,
+          width,
+          height,
+          confidence: clamp01(score),
+        };
+      })
+      .filter(Boolean);
   }
 }
 
 class CanvasOverlayFaceSwapper {
-  swap(frame, faces, strength) {
+  swap(frame, faces, strength, detectorName) {
     return {
       frame,
       faces,
@@ -47,17 +180,25 @@ class CanvasOverlayFaceSwapper {
         source: syntheticSourceFace,
         strength,
       })),
-      engineName: frame.live ? "pseudo-swap-js-live" : "pseudo-swap-js",
+      engineName: `${detectorName} + pseudo-swap`,
     };
   }
 }
 
+const fallbackDetector = new PlaceholderFaceDetector();
+const mediaPipeDetector = new MediaPipeFaceDetector(fallbackDetector);
+
 const pipeline = {
-  detector: new PlaceholderFaceDetector(),
   swapper: new CanvasOverlayFaceSwapper(),
-  run(frame) {
-    const faces = this.detector.detect(frame);
-    return this.swapper.swap(frame, faces, Number(overlayStrength.value) / 100);
+  async run(frame) {
+    const detector = backendSelect.value === "mediapipe" ? mediaPipeDetector : fallbackDetector;
+    const detection = await detector.detect(frame);
+    return this.swapper.swap(
+      frame,
+      detection.faces,
+      Number(overlayStrength.value) / 100,
+      detection.engineName,
+    );
   },
 };
 
@@ -65,6 +206,8 @@ let currentFrame = createSampleFrame();
 let cameraStream = null;
 let liveFrameRequest = 0;
 let lastLiveStatusAt = 0;
+let pipelineBusy = false;
+let lastPipelineResult = null;
 
 cameraButton.addEventListener("click", () => {
   if (cameraStream) {
@@ -77,6 +220,13 @@ cameraButton.addEventListener("click", () => {
 captureButton.addEventListener("click", captureCameraFrame);
 resultTab.addEventListener("click", () => setActiveView("result"));
 sourceTab.addEventListener("click", () => setActiveView("source"));
+backendSelect.addEventListener("change", () => {
+  if (backendSelect.value === "mediapipe") {
+    mediaPipeDetector.warmUp();
+    statusText.textContent = "Loading MediaPipe face detector...";
+  }
+  runPipeline();
+});
 
 imageInput.addEventListener("change", async (event) => {
   const [file] = event.target.files;
@@ -98,6 +248,7 @@ overlayStrength.addEventListener("input", () => runPipeline({ silent: Boolean(ca
 
 drawSource(currentFrame);
 runPipeline();
+mediaPipeDetector.warmUp();
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -171,11 +322,15 @@ function startLiveLoop() {
     if (frame) {
       currentFrame = frame;
       drawSource(frame);
-      runPipeline({ silent: true });
+      if (!pipelineBusy) {
+        runPipeline({ silent: true });
+      } else if (lastPipelineResult) {
+        drawResult(lastPipelineResult);
+      }
 
       const now = performance.now();
       if (now - lastLiveStatusAt > 1000) {
-        statusText.textContent = `Live pseudo swap: ${frame.width}x${frame.height}.`;
+        statusText.textContent = `Live ${engineMeta.textContent}: ${frame.width}x${frame.height}.`;
         lastLiveStatusAt = now;
       }
     }
@@ -212,21 +367,36 @@ function captureCameraFrame() {
   statusText.textContent = `Captured ${snapshot.width}x${snapshot.height} from camera.`;
 }
 
-function runPipeline(options = {}) {
+async function runPipeline(options = {}) {
+  if (pipelineBusy) return;
   const { silent = false } = options;
+  pipelineBusy = true;
   const startedAt = performance.now();
-  const result = pipeline.run(currentFrame);
 
-  ensureCanvasSize(afterCanvas, currentFrame.width, currentFrame.height);
-  afterCtx.drawImage(beforeCanvas, 0, 0);
-  renderOverlays(afterCtx, result);
+  try {
+    const frame = currentFrame;
+    const result = await pipeline.run(frame);
+    lastPipelineResult = result;
+    drawResult(result);
 
-  const elapsed = Math.max(1, Math.round(performance.now() - startedAt));
-  engineMeta.textContent = result.engineName;
+    const elapsed = Math.max(1, Math.round(performance.now() - startedAt));
+    engineMeta.textContent = result.engineName;
 
-  if (!silent) {
-    statusText.textContent = `Detected ${result.faces.length} placeholder face. Rendered in ${elapsed}ms.`;
+    if (!silent) {
+      statusText.textContent = `Detected ${result.faces.length} face candidate. Rendered in ${elapsed}ms.`;
+    }
+  } catch (error) {
+    statusText.textContent = `Pipeline failed: ${error.message}`;
+  } finally {
+    pipelineBusy = false;
   }
+}
+
+function drawResult(result) {
+  ensureCanvasSize(afterCanvas, result.frame.width, result.frame.height);
+  afterCtx.clearRect(0, 0, result.frame.width, result.frame.height);
+  drawFrameImage(afterCtx, result.frame);
+  renderOverlays(afterCtx, result);
 }
 
 function setActiveView(view) {
@@ -263,6 +433,16 @@ function drawFrameImage(ctx, frame) {
   }
   ctx.drawImage(frame.image, 0, 0, frame.width, frame.height);
   ctx.restore();
+}
+
+function wait(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+function clamp01(value) {
+  return Math.min(1, Math.max(0, value));
 }
 
 function renderOverlays(ctx, result) {
