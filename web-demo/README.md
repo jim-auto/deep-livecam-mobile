@@ -10,15 +10,17 @@ The current demo runs a buildless browser pipeline:
 
 1. Load a sample frame or uploaded image.
 2. Optionally open a smartphone front camera with `getUserMedia`.
-3. Detect live camera faces with MediaPipe Face Detector when available.
-4. Draw a synthetic pseudo swap face on the output canvas.
+3. Detect live camera landmarks with MediaPipe Face Landmarker when available.
+4. Use eye, nose, and mouth landmarks to align a synthetic pseudo swap face.
 
-The `Center Fallback` backend remains available for browsers that cannot load
-MediaPipe Tasks Vision, its WASM files, or the BlazeFace model. Future browser
-inference work can replace the pseudo swapper with ONNX Runtime Web,
-WebGPU/WebGL, or a model-backed face swap implementation.
+The `MediaPipe Face Detector` backend is kept as a lighter comparison path, and
+the `Center Fallback` backend remains available for browsers that cannot load
+MediaPipe Tasks Vision, its WASM files, or the model assets. Future browser
+inference work can replace the pseudo swapper with ONNX Runtime Web, WebGPU/WebGL,
+or a model-backed face swap implementation.
 
 External runtime assets used by the MediaPipe backend:
 
 - `@mediapipe/tasks-vision` from jsDelivr
 - BlazeFace short-range model from Google's MediaPipe model storage
+- Face Landmarker model from Google's MediaPipe model storage

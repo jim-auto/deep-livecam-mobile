@@ -27,7 +27,8 @@ runtime stack.
 
 ## Current web experiment
 
-`web-demo` now loads MediaPipe Tasks Vision from a CDN and uses the BlazeFace
-short-range model for live camera face boxes. The demo keeps a deterministic
-center fallback so GitHub Pages still works when the model, WASM files, or CDN
-are unavailable.
+`web-demo` now loads MediaPipe Tasks Vision from a CDN. The default backend uses
+Face Landmarker to estimate eye, nose, and mouth points for pseudo swap alignment.
+A lighter BlazeFace short-range detector backend remains available for comparison.
+The demo keeps a deterministic center fallback so GitHub Pages still works when
+the model, WASM files, or CDN are unavailable.

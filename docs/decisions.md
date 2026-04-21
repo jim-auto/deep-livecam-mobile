@@ -34,7 +34,7 @@ camera path would use later: frame input, detection, swap, and render.
 
 The web demo uses static HTML, CSS, and JavaScript. It is intentionally buildless
 so GitHub Pages can serve it directly. It also includes a `getUserMedia` camera
-path so a smartphone browser can exercise a MediaPipe-backed face detector and
+path so a smartphone browser can exercise a MediaPipe-backed face landmarker and
 pseudo swap renderer before real face swap inference is available.
 
 ## What we are not doing yet

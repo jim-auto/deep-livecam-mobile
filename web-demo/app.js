@@ -22,6 +22,7 @@ const syntheticSourceFace = createSyntheticSourceFace();
 const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
 const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
 const BLAZE_FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
+const FACE_LANDMARKER_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
 
 class PlaceholderFaceDetector {
   detect(frame) {
@@ -95,11 +96,7 @@ class MediaPipeFaceDetector {
 
       const result = this.detector.detectForVideo(frame.image, now);
       const faces = this.toFaceBoxes(result, frame);
-      if (faces.length) {
-        this.lastLiveFaces = faces;
-      } else if (!this.lastLiveFaces) {
-        this.lastLiveFaces = [];
-      }
+      this.lastLiveFaces = faces;
       this.lastLiveEngineName = faces.length ? "mediapipe-face-detector" : "mediapipe-no-face";
       this.lastLiveDetectionAt = now;
       return {
@@ -168,6 +165,156 @@ class MediaPipeFaceDetector {
   }
 }
 
+class MediaPipeFaceLandmarker {
+  constructor(fallbackDetector) {
+    this.fallbackDetector = fallbackDetector;
+    this.landmarker = null;
+    this.loadingPromise = null;
+    this.failedReason = "";
+    this.lastLiveFaces = null;
+    this.lastLiveEngineName = "mediapipe-face-landmarker";
+    this.lastLiveDetectionAt = 0;
+    this.minLiveIntervalMs = 120;
+    this.mode = "VIDEO";
+  }
+
+  warmUp() {
+    if (this.landmarker || this.loadingPromise || this.failedReason) return;
+    this.loadingPromise = this.load().catch((error) => {
+      this.failedReason = error.message || "Face Landmarker failed to load";
+      return null;
+    });
+  }
+
+  async detect(frame) {
+    this.warmUp();
+
+    if (!this.landmarker) {
+      if (this.loadingPromise) {
+        await Promise.race([this.loadingPromise, wait(0)]);
+      }
+      if (!this.landmarker) {
+        const fallback = this.fallbackDetector.detect(frame);
+        return {
+          ...fallback,
+          engineName: this.failedReason ? "center-fallback" : "landmarker-loading",
+          ready: false,
+          note: this.failedReason,
+        };
+      }
+    }
+
+    if (frame.live) {
+      const now = performance.now();
+      if (this.lastLiveFaces !== null && now - this.lastLiveDetectionAt < this.minLiveIntervalMs) {
+        return {
+          faces: this.lastLiveFaces,
+          engineName: this.lastLiveEngineName,
+          ready: true,
+        };
+      }
+
+      const result = this.landmarker.detectForVideo(frame.image, now);
+      const faces = this.toFaceBoxes(result, frame);
+      this.lastLiveFaces = faces;
+      this.lastLiveEngineName = faces.length ? "mediapipe-face-landmarker" : "landmarker-no-face";
+      this.lastLiveDetectionAt = now;
+      return {
+        faces: this.lastLiveFaces,
+        engineName: this.lastLiveEngineName,
+        ready: true,
+      };
+    }
+
+    const fallback = this.fallbackDetector.detect(frame);
+    return {
+      ...fallback,
+      engineName: "center-fallback-image",
+      ready: true,
+    };
+  }
+
+  async load() {
+    const vision = await import(MEDIAPIPE_TASKS_URL);
+    const fileset = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
+    this.landmarker = await this.createLandmarker(vision, fileset, "GPU").catch(() => {
+      return this.createLandmarker(vision, fileset);
+    });
+  }
+
+  createLandmarker(vision, fileset, delegate) {
+    const baseOptions = {
+      modelAssetPath: FACE_LANDMARKER_MODEL_URL,
+    };
+    if (delegate) {
+      baseOptions.delegate = delegate;
+    }
+
+    return vision.FaceLandmarker.createFromOptions(fileset, {
+      baseOptions,
+      runningMode: this.mode,
+      numFaces: 1,
+      minFaceDetectionConfidence: 0.5,
+      minFacePresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+      outputFaceBlendshapes: false,
+      outputFacialTransformationMatrixes: false,
+    });
+  }
+
+  toFaceBoxes(result, frame) {
+    const faces = result?.faceLandmarks || result?.face_landmarks || [];
+    return faces
+      .map((landmarks) => this.faceFromLandmarks(landmarks, frame))
+      .filter(Boolean);
+  }
+
+  faceFromLandmarks(landmarks, frame) {
+    if (!landmarks?.length) return null;
+
+    const points = landmarks.map((landmark) => ({
+      x: clamp01(frame.mirrored ? 1 - landmark.x : landmark.x),
+      y: clamp01(landmark.y),
+      z: landmark.z || 0,
+    }));
+
+    const bounds = points.reduce(
+      (acc, point) => ({
+        minX: Math.min(acc.minX, point.x),
+        minY: Math.min(acc.minY, point.y),
+        maxX: Math.max(acc.maxX, point.x),
+        maxY: Math.max(acc.maxY, point.y),
+      }),
+      { minX: 1, minY: 1, maxX: 0, maxY: 0 },
+    );
+
+    const expanded = expandBounds(bounds, 0.12, 0.18);
+    const leftEye = averageLandmarks(points, [33, 133, 159, 145]);
+    const rightEye = averageLandmarks(points, [362, 263, 386, 374]);
+    const nose = points[1] || midpoint(leftEye, rightEye);
+    const mouth = averageLandmarks(points, [13, 14, 61, 291]);
+    const eyeCenter = midpoint(leftEye, rightEye);
+    const center = {
+      x: eyeCenter.x * 0.48 + nose.x * 0.34 + mouth.x * 0.18,
+      y: eyeCenter.y * 0.32 + nose.y * 0.42 + mouth.y * 0.26,
+    };
+
+    return {
+      x: expanded.x,
+      y: expanded.y,
+      width: expanded.width,
+      height: expanded.height,
+      confidence: 0.82,
+      alignment: {
+        centerX: clamp01(center.x),
+        centerY: clamp01(center.y),
+        rotation: Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x),
+        eyeDistance: distance(leftEye, rightEye),
+      },
+    };
+  }
+}
+
 class CanvasOverlayFaceSwapper {
   swap(frame, faces, strength, detectorName) {
     return {
@@ -187,11 +334,12 @@ class CanvasOverlayFaceSwapper {
 
 const fallbackDetector = new PlaceholderFaceDetector();
 const mediaPipeDetector = new MediaPipeFaceDetector(fallbackDetector);
+const faceLandmarker = new MediaPipeFaceLandmarker(fallbackDetector);
 
 const pipeline = {
   swapper: new CanvasOverlayFaceSwapper(),
   async run(frame) {
-    const detector = backendSelect.value === "mediapipe" ? mediaPipeDetector : fallbackDetector;
+    const detector = getSelectedDetector();
     const detection = await detector.detect(frame);
     return this.swapper.swap(
       frame,
@@ -221,7 +369,10 @@ captureButton.addEventListener("click", captureCameraFrame);
 resultTab.addEventListener("click", () => setActiveView("result"));
 sourceTab.addEventListener("click", () => setActiveView("source"));
 backendSelect.addEventListener("change", () => {
-  if (backendSelect.value === "mediapipe") {
+  if (backendSelect.value === "landmarker") {
+    faceLandmarker.warmUp();
+    statusText.textContent = "Loading MediaPipe face landmarker...";
+  } else if (backendSelect.value === "mediapipe") {
     mediaPipeDetector.warmUp();
     statusText.textContent = "Loading MediaPipe face detector...";
   }
@@ -248,7 +399,7 @@ overlayStrength.addEventListener("input", () => runPipeline({ silent: Boolean(ca
 
 drawSource(currentFrame);
 runPipeline();
-mediaPipeDetector.warmUp();
+faceLandmarker.warmUp();
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
@@ -399,6 +550,12 @@ function drawResult(result) {
   renderOverlays(afterCtx, result);
 }
 
+function getSelectedDetector() {
+  if (backendSelect.value === "landmarker") return faceLandmarker;
+  if (backendSelect.value === "mediapipe") return mediaPipeDetector;
+  return fallbackDetector;
+}
+
 function setActiveView(view) {
   const resultActive = view === "result";
   resultTab.classList.toggle("active", resultActive);
@@ -445,6 +602,41 @@ function clamp01(value) {
   return Math.min(1, Math.max(0, value));
 }
 
+function expandBounds(bounds, expandX, expandY) {
+  const width = bounds.maxX - bounds.minX;
+  const height = bounds.maxY - bounds.minY;
+  const x = clamp01(bounds.minX - width * expandX);
+  const y = clamp01(bounds.minY - height * expandY);
+  const right = clamp01(bounds.maxX + width * expandX);
+  const bottom = clamp01(bounds.maxY + height * expandY);
+  return {
+    x,
+    y,
+    width: Math.max(0.01, right - x),
+    height: Math.max(0.01, bottom - y),
+  };
+}
+
+function averageLandmarks(points, indexes) {
+  const valid = indexes.map((index) => points[index]).filter(Boolean);
+  if (!valid.length) return { x: 0.5, y: 0.5 };
+  return {
+    x: valid.reduce((sum, point) => sum + point.x, 0) / valid.length,
+    y: valid.reduce((sum, point) => sum + point.y, 0) / valid.length,
+  };
+}
+
+function midpoint(a, b) {
+  return {
+    x: (a.x + b.x) / 2,
+    y: (a.y + b.y) / 2,
+  };
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 function renderOverlays(ctx, result) {
   for (const overlay of result.overlays) {
     const rect = toCanvasRect(overlay.face, result.frame);
@@ -462,46 +654,36 @@ function renderOverlays(ctx, result) {
 }
 
 function drawPseudoSwap(ctx, overlay, rect, frame) {
-  const faceWidth = rect.width * 0.92;
-  const faceHeight = rect.height * 1.02;
-  const faceX = rect.x + (rect.width - faceWidth) / 2;
-  const faceY = rect.y - rect.height * 0.05;
+  const alignment = overlay.face.alignment;
+  const centerX = alignment ? alignment.centerX * frame.width : rect.x + rect.width / 2;
+  const centerY = alignment ? alignment.centerY * frame.height : rect.y + rect.height / 2;
+  const faceWidth = alignment?.eyeDistance
+    ? Math.max(rect.width * 0.82, alignment.eyeDistance * frame.width * 2.45)
+    : rect.width * 0.92;
+  const faceHeight = Math.max(rect.height * 0.96, faceWidth * 1.18);
+  const rotation = alignment?.rotation || 0;
   const blurRadius = Math.max(10, frame.width / 96);
-  const centerX = faceX + faceWidth / 2;
-  const centerY = faceY + faceHeight / 2;
 
   ctx.save();
   ctx.globalAlpha = 0.26 + overlay.strength * 0.74;
   ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
   ctx.shadowBlur = blurRadius;
   ctx.shadowOffsetY = Math.max(2, frame.width / 320);
+  ctx.translate(centerX, centerY);
+  ctx.rotate(rotation);
   ctx.beginPath();
-  ctx.ellipse(
-    centerX,
-    centerY,
-    faceWidth / 2,
-    faceHeight / 2,
-    0,
-    0,
-    Math.PI * 2,
-  );
+  ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
   ctx.clip();
-  ctx.drawImage(overlay.source, faceX, faceY, faceWidth, faceHeight);
+  ctx.drawImage(overlay.source, -faceWidth / 2, -faceHeight / 2, faceWidth, faceHeight);
   ctx.restore();
 
   ctx.save();
   ctx.globalAlpha = overlay.strength * 0.18;
   ctx.fillStyle = "#f2ad98";
+  ctx.translate(centerX, centerY);
+  ctx.rotate(rotation);
   ctx.beginPath();
-  ctx.ellipse(
-    centerX,
-    centerY,
-    faceWidth / 2,
-    faceHeight / 2,
-    0,
-    0,
-    Math.PI * 2,
-  );
+  ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
   ctx.fill();
   ctx.restore();
 
@@ -509,8 +691,10 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   ctx.globalAlpha = 0.22 + overlay.strength * 0.32;
   ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
   ctx.lineWidth = Math.max(2, frame.width / 320);
+  ctx.translate(centerX, centerY);
+  ctx.rotate(rotation);
   ctx.beginPath();
-  ctx.ellipse(centerX, centerY, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
   ctx.stroke();
   ctx.restore();
 }
