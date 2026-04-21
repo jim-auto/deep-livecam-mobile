@@ -11,7 +11,8 @@ The current demo runs a buildless browser pipeline:
 1. Load a sample frame or uploaded image.
 2. Optionally open a smartphone front camera with `getUserMedia`.
 3. Detect live camera landmarks with MediaPipe Face Landmarker when available.
-4. Use eye, nose, and mouth landmarks to align a synthetic pseudo swap face.
+4. Use eye, nose, mouth, and face-oval landmarks to align and mask a synthetic
+   pseudo swap face.
 
 The `MediaPipe Face Detector` backend is kept as a lighter comparison path, and
 the `Center Fallback` backend remains available for browsers that cannot load

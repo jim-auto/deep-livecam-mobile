@@ -23,6 +23,11 @@ const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-visio
 const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
 const BLAZE_FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
 const FACE_LANDMARKER_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task";
+const FACE_OVAL_LANDMARKS = [
+  10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288,
+  397, 365, 379, 378, 400, 377, 152, 148, 176, 149, 150, 136,
+  172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
+];
 
 class PlaceholderFaceDetector {
   detect(frame) {
@@ -291,9 +296,11 @@ class MediaPipeFaceLandmarker {
     const expanded = expandBounds(bounds, 0.12, 0.18);
     const leftEye = averageLandmarks(points, [33, 133, 159, 145]);
     const rightEye = averageLandmarks(points, [362, 263, 386, 374]);
+    const visualLeftEye = leftEye.x <= rightEye.x ? leftEye : rightEye;
+    const visualRightEye = leftEye.x <= rightEye.x ? rightEye : leftEye;
     const nose = points[1] || midpoint(leftEye, rightEye);
     const mouth = averageLandmarks(points, [13, 14, 61, 291]);
-    const eyeCenter = midpoint(leftEye, rightEye);
+    const eyeCenter = midpoint(visualLeftEye, visualRightEye);
     const center = {
       x: eyeCenter.x * 0.48 + nose.x * 0.34 + mouth.x * 0.18,
       y: eyeCenter.y * 0.32 + nose.y * 0.42 + mouth.y * 0.26,
@@ -305,11 +312,14 @@ class MediaPipeFaceLandmarker {
       width: expanded.width,
       height: expanded.height,
       confidence: 0.82,
+      mask: {
+        points: FACE_OVAL_LANDMARKS.map((index) => points[index]).filter(Boolean),
+      },
       alignment: {
         centerX: clamp01(center.x),
         centerY: clamp01(center.y),
-        rotation: Math.atan2(rightEye.y - leftEye.y, rightEye.x - leftEye.x),
-        eyeDistance: distance(leftEye, rightEye),
+        rotation: Math.atan2(visualRightEye.y - visualLeftEye.y, visualRightEye.x - visualLeftEye.x),
+        eyeDistance: distance(visualLeftEye, visualRightEye),
       },
     };
   }
@@ -663,27 +673,24 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   const faceHeight = Math.max(rect.height * 0.96, faceWidth * 1.18);
   const rotation = alignment?.rotation || 0;
   const blurRadius = Math.max(10, frame.width / 96);
+  const maskPoints = toCanvasMaskPoints(overlay.face.mask?.points, frame);
 
   ctx.save();
   ctx.globalAlpha = 0.26 + overlay.strength * 0.74;
   ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
   ctx.shadowBlur = blurRadius;
   ctx.shadowOffsetY = Math.max(2, frame.width / 320);
+  applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
+  ctx.clip();
   ctx.translate(centerX, centerY);
   ctx.rotate(rotation);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
-  ctx.clip();
   ctx.drawImage(overlay.source, -faceWidth / 2, -faceHeight / 2, faceWidth, faceHeight);
   ctx.restore();
 
   ctx.save();
   ctx.globalAlpha = overlay.strength * 0.18;
   ctx.fillStyle = "#f2ad98";
-  ctx.translate(centerX, centerY);
-  ctx.rotate(rotation);
-  ctx.beginPath();
-  ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
+  applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
   ctx.fill();
   ctx.restore();
 
@@ -691,12 +698,47 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   ctx.globalAlpha = 0.22 + overlay.strength * 0.32;
   ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
   ctx.lineWidth = Math.max(2, frame.width / 320);
+  applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function toCanvasMaskPoints(points, frame) {
+  if (!points || points.length < 8) return null;
+  return points.map((point) => ({
+    x: point.x * frame.width,
+    y: point.y * frame.height,
+  }));
+}
+
+function applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation) {
+  if (maskPoints?.length >= 8) {
+    drawSmoothClosedPath(ctx, maskPoints);
+    return;
+  }
+
   ctx.translate(centerX, centerY);
   ctx.rotate(rotation);
   ctx.beginPath();
   ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.restore();
+}
+
+function drawSmoothClosedPath(ctx, points) {
+  ctx.beginPath();
+  points.forEach((point, index) => {
+    const next = points[(index + 1) % points.length];
+    const midX = (point.x + next.x) / 2;
+    const midY = (point.y + next.y) / 2;
+    if (index === 0) {
+      ctx.moveTo(midX, midY);
+    } else {
+      ctx.quadraticCurveTo(point.x, point.y, midX, midY);
+    }
+  });
+  const first = points[0];
+  const second = points[1];
+  ctx.quadraticCurveTo(first.x, first.y, (first.x + second.x) / 2, (first.y + second.y) / 2);
+  ctx.closePath();
 }
 
 function drawOverlayBadge(ctx, label, rect, frame) {

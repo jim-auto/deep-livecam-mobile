@@ -82,9 +82,10 @@ publish `web-demo/` through GitHub Pages using GitHub Actions.
 
 The current browser pipeline loads a sample or uploaded image, opens a phone
 front camera on HTTPS hosts, and uses MediaPipe Face Landmarker for live camera
-face alignment when the browser can load the model. A lighter MediaPipe Face
-Detector backend and deterministic center fallback are also available. The output
-is still a synthetic pseudo swap, not real identity transfer.
+face alignment and a simple face-oval mask when the browser can load the model.
+A lighter MediaPipe Face Detector backend and deterministic center fallback are
+also available. The output is still a synthetic pseudo swap, not real identity
+transfer.
 
 ## Roadmap
 
@@ -92,8 +93,8 @@ is still a synthetic pseudo swap, not real identity transfer.
 2. Replace the dummy detector with a lightweight face detector.
 3. Evaluate ONNX Runtime Mobile, TensorFlow Lite, and MediaPipe for Android.
 4. Add model download/checksum handling outside the initial APK.
-5. Use MediaPipe landmarks for better alignment, masks, and source face placement.
-6. Add face alignment, source face selection, masks, and blending.
+5. Improve landmark masks, edge blending, and temporal smoothing.
+6. Add source face selection and model-backed identity transfer experiments.
 7. Add latency, memory, and thermal profiling for Android devices.
 8. Define contribution guidelines once the first real inference path lands.
 
