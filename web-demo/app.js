@@ -12,6 +12,10 @@ const overlayStrength = document.querySelector("#overlayStrength");
 const sourceMeta = document.querySelector("#sourceMeta");
 const engineMeta = document.querySelector("#engineMeta");
 const statusText = document.querySelector("#status");
+const resultTab = document.querySelector("#resultTab");
+const sourceTab = document.querySelector("#sourceTab");
+const resultPanel = document.querySelector("#resultPanel");
+const sourcePanel = document.querySelector("#sourcePanel");
 const syntheticSourceFace = createSyntheticSourceFace();
 
 class PlaceholderFaceDetector {
@@ -33,14 +37,12 @@ class PlaceholderFaceDetector {
 
 class CanvasOverlayFaceSwapper {
   swap(frame, faces, strength) {
-    const alpha = Math.round(30 + strength * 150);
     return {
       frame,
       faces,
       overlays: faces.map((face, index) => ({
         face,
         label: `pseudo-swap-${index + 1}`,
-        fill: `rgba(20, 184, 166, ${alpha / 255})`,
         stroke: "#0f766e",
         source: syntheticSourceFace,
         strength,
@@ -73,6 +75,8 @@ cameraButton.addEventListener("click", () => {
 });
 
 captureButton.addEventListener("click", captureCameraFrame);
+resultTab.addEventListener("click", () => setActiveView("result"));
+sourceTab.addEventListener("click", () => setActiveView("source"));
 
 imageInput.addEventListener("change", async (event) => {
   const [file] = event.target.files;
@@ -123,6 +127,7 @@ async function startCamera() {
     cameraButton.textContent = "Stop camera";
     captureButton.disabled = false;
     statusText.textContent = "Camera running with pseudo swap pipeline.";
+    setActiveView("result");
     startLiveLoop();
   } catch (error) {
     if (cameraStream) {
@@ -224,6 +229,16 @@ function runPipeline(options = {}) {
   }
 }
 
+function setActiveView(view) {
+  const resultActive = view === "result";
+  resultTab.classList.toggle("active", resultActive);
+  sourceTab.classList.toggle("active", !resultActive);
+  resultTab.setAttribute("aria-selected", String(resultActive));
+  sourceTab.setAttribute("aria-selected", String(!resultActive));
+  resultPanel.classList.toggle("active", resultActive);
+  sourcePanel.classList.toggle("active", !resultActive);
+}
+
 function drawSource(frame) {
   ensureCanvasSize(beforeCanvas, frame.width, frame.height);
   beforeCtx.clearRect(0, 0, frame.width, frame.height);
@@ -256,33 +271,34 @@ function renderOverlays(ctx, result) {
     drawPseudoSwap(ctx, overlay, rect, result.frame);
 
     ctx.save();
+    ctx.globalAlpha = 0.72;
     ctx.strokeStyle = overlay.stroke;
     ctx.lineWidth = Math.max(3, result.frame.width / 260);
     roundRect(ctx, rect.x, rect.y, rect.width, rect.height, 24);
     ctx.stroke();
-    ctx.fillStyle = "#172033";
-    ctx.font = `${Math.max(18, result.frame.width / 42)}px system-ui, sans-serif`;
-    ctx.fillText(overlay.label, rect.x, Math.max(30, rect.y - 12));
+    drawOverlayBadge(ctx, overlay.label, rect, result.frame);
     ctx.restore();
   }
 }
 
 function drawPseudoSwap(ctx, overlay, rect, frame) {
-  const faceWidth = rect.width * 0.86;
-  const faceHeight = rect.height * 0.94;
+  const faceWidth = rect.width * 0.92;
+  const faceHeight = rect.height * 1.02;
   const faceX = rect.x + (rect.width - faceWidth) / 2;
-  const faceY = rect.y + rect.height * 0.02;
+  const faceY = rect.y - rect.height * 0.05;
   const blurRadius = Math.max(10, frame.width / 96);
+  const centerX = faceX + faceWidth / 2;
+  const centerY = faceY + faceHeight / 2;
 
   ctx.save();
-  ctx.globalAlpha = 0.18 + overlay.strength * 0.82;
+  ctx.globalAlpha = 0.26 + overlay.strength * 0.74;
   ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
   ctx.shadowBlur = blurRadius;
   ctx.shadowOffsetY = Math.max(2, frame.width / 320);
   ctx.beginPath();
   ctx.ellipse(
-    faceX + faceWidth / 2,
-    faceY + faceHeight / 2,
+    centerX,
+    centerY,
     faceWidth / 2,
     faceHeight / 2,
     0,
@@ -294,12 +310,12 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   ctx.restore();
 
   ctx.save();
-  ctx.globalAlpha = overlay.strength * 0.26;
-  ctx.fillStyle = "#f4b6a3";
+  ctx.globalAlpha = overlay.strength * 0.18;
+  ctx.fillStyle = "#f2ad98";
   ctx.beginPath();
   ctx.ellipse(
-    faceX + faceWidth / 2,
-    faceY + faceHeight / 2,
+    centerX,
+    centerY,
     faceWidth / 2,
     faceHeight / 2,
     0,
@@ -307,6 +323,36 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
     Math.PI * 2,
   );
   ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalAlpha = 0.22 + overlay.strength * 0.32;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.72)";
+  ctx.lineWidth = Math.max(2, frame.width / 320);
+  ctx.beginPath();
+  ctx.ellipse(centerX, centerY, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawOverlayBadge(ctx, label, rect, frame) {
+  const fontSize = Math.max(16, frame.width / 54);
+  const paddingX = Math.max(10, frame.width / 140);
+  const paddingY = Math.max(5, frame.width / 260);
+  ctx.font = `${fontSize}px system-ui, sans-serif`;
+  const textWidth = ctx.measureText(label).width;
+  const badgeWidth = textWidth + paddingX * 2;
+  const badgeHeight = fontSize + paddingY * 2;
+  const x = rect.x;
+  const y = Math.max(8, rect.y - badgeHeight - 8);
+
+  ctx.save();
+  ctx.globalAlpha = 0.9;
+  ctx.fillStyle = "rgba(255, 255, 255, 0.86)";
+  roundRect(ctx, x, y, badgeWidth, badgeHeight, Math.min(12, badgeHeight / 2));
+  ctx.fill();
+  ctx.fillStyle = "#172033";
+  ctx.fillText(label, x + paddingX, y + paddingY + fontSize * 0.78);
   ctx.restore();
 }
 
@@ -398,12 +444,12 @@ function createSyntheticSourceFace() {
 
   ctx.fillStyle = "#2f3a4f";
   ctx.beginPath();
-  ctx.ellipse(256, 300, 190, 245, 0, 0, Math.PI * 2);
+  ctx.ellipse(256, 292, 194, 250, 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = "#f1c2aa";
   ctx.beginPath();
-  ctx.ellipse(256, 315, 165, 218, 0, 0, Math.PI * 2);
+  ctx.ellipse(256, 322, 165, 214, 0, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.fillStyle = "#c9856e";
@@ -424,6 +470,15 @@ function createSyntheticSourceFace() {
   ctx.beginPath();
   ctx.moveTo(218, 420);
   ctx.quadraticCurveTo(256, 448, 294, 420);
+  ctx.stroke();
+
+  ctx.strokeStyle = "#6f3f3b";
+  ctx.lineWidth = 14;
+  ctx.beginPath();
+  ctx.moveTo(176, 248);
+  ctx.quadraticCurveTo(202, 232, 228, 246);
+  ctx.moveTo(284, 246);
+  ctx.quadraticCurveTo(314, 232, 342, 250);
   ctx.stroke();
 
   ctx.fillStyle = "rgba(255, 255, 255, 0.34)";

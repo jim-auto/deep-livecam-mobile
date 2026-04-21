@@ -11,7 +11,7 @@
     <main class="shell">
       <header class="topbar">
         <div>
-          <p class="eyebrow">browser pipeline skeleton</p>
+          <p class="eyebrow">mobile browser prototype</p>
           <h1>Deep LiveCam Mobile Web Demo</h1>
         </div>
         <div class="actions" aria-label="Input actions">
@@ -26,18 +26,23 @@
 
       <video id="cameraVideo" playsinline muted></video>
 
+      <div class="view-tabs" role="tablist" aria-label="Demo view">
+        <button id="resultTab" class="view-tab active" type="button" role="tab" aria-selected="true">Result</button>
+        <button id="sourceTab" class="view-tab" type="button" role="tab" aria-selected="false">Source</button>
+      </div>
+
       <section class="workspace" aria-label="Face swap demo workspace">
-        <div class="panel">
+        <div id="sourcePanel" class="panel source-panel">
           <div class="panel-head">
-            <h2>Before</h2>
+            <h2>Source</h2>
             <span id="sourceMeta">sample frame</span>
           </div>
           <canvas id="beforeCanvas" width="1280" height="720"></canvas>
         </div>
 
-        <div class="panel">
+        <div id="resultPanel" class="panel result-panel active">
           <div class="panel-head">
-            <h2>After</h2>
+            <h2>Result</h2>
             <span id="engineMeta">dummy-overlay</span>
           </div>
           <canvas id="afterCanvas" width="1280" height="720"></canvas>
@@ -61,6 +66,10 @@
         <button id="runButton" type="button">Run pseudo swap</button>
         <p id="status" role="status">Ready.</p>
       </section>
+
+      <p class="safety-note">
+        Prototype demo. No real identity transfer yet. Use only with consent and do not use it for impersonation or deceptive content.
+      </p>
     </main>
   </body>
 </html>
