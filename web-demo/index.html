@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Deep LiveCam Mobile Web Demo</title>
+    <link rel="stylesheet" href="./styles.css">
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">browser pipeline skeleton</p>
+          <h1>Deep LiveCam Mobile Web Demo</h1>
+        </div>
+        <div class="actions" aria-label="Input actions">
+          <button id="cameraButton" type="button">Open camera</button>
+          <button id="captureButton" type="button" disabled>Capture</button>
+          <label class="upload">
+            <input id="imageInput" type="file" accept="image/*" capture="user">
+            <span>Choose image</span>
+          </label>
+        </div>
+      </header>
+
+      <video id="cameraVideo" playsinline muted></video>
+
+      <section class="workspace" aria-label="Face swap demo workspace">
+        <div class="panel">
+          <div class="panel-head">
+            <h2>Before</h2>
+            <span id="sourceMeta">sample frame</span>
+          </div>
+          <canvas id="beforeCanvas" width="1280" height="720"></canvas>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h2>After</h2>
+            <span id="engineMeta">dummy-overlay</span>
+          </div>
+          <canvas id="afterCanvas" width="1280" height="720"></canvas>
+        </div>
+      </section>
+
+      <section class="controls" aria-label="Demo controls">
+        <div class="control-group">
+          <label for="backendSelect">Backend</label>
+          <select id="backendSelect">
+            <option value="placeholder">Placeholder JS</option>
+            <option value="onnx" disabled>ONNX Runtime Web</option>
+            <option value="webgpu" disabled>WebGPU</option>
+            <option value="mediapipe" disabled>MediaPipe</option>
+          </select>
+        </div>
+        <div class="control-group">
+          <label for="overlayStrength">Overlay</label>
+          <input id="overlayStrength" type="range" min="0" max="100" value="62">
+        </div>
+        <button id="runButton" type="button">Run placeholder pipeline</button>
+        <p id="status" role="status">Ready.</p>
+      </section>
+    </main>
+  </body>
+</html>
