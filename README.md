@@ -81,11 +81,13 @@ It can also be opened locally as a static file. The repository is configured to
 publish `web-demo/` through GitHub Pages using GitHub Actions.
 
 The current browser pipeline loads a sample or uploaded image, opens a phone
-front camera on HTTPS hosts, and uses MediaPipe Face Landmarker for live camera
-face alignment, a simple face-oval mask, edge feathering, and temporal smoothing
-when the browser can load the model. A lighter MediaPipe Face Detector backend
-and deterministic center fallback are also available. The output is still a
-synthetic pseudo swap, not real identity transfer.
+front camera on HTTPS hosts, lets the user choose a source face image, and uses
+MediaPipe Face Landmarker for live camera face alignment, a simple face-oval mask,
+edge feathering, and temporal smoothing when the browser can load the model. A
+lighter MediaPipe Face Detector backend and deterministic center fallback are also
+available. The output is still a pseudo swap, not real identity transfer.
+Selected target/source images are processed locally in the browser and are not
+uploaded by this static demo.
 
 ## Roadmap
 
@@ -94,7 +96,7 @@ synthetic pseudo swap, not real identity transfer.
 3. Evaluate ONNX Runtime Mobile, TensorFlow Lite, and MediaPipe for Android.
 4. Add model download/checksum handling outside the initial APK.
 5. Improve color matching, mask quality, and temporal stability.
-6. Add source face selection and model-backed identity transfer experiments.
+6. Add model-backed identity transfer experiments.
 7. Add latency, memory, and thermal profiling for Android devices.
 8. Define contribution guidelines once the first real inference path lands.
 

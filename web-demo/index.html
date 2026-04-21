@@ -17,9 +17,13 @@
         <div class="actions" aria-label="Input actions">
           <button id="cameraButton" type="button">Open camera</button>
           <button id="captureButton" type="button" disabled>Capture</button>
-          <label class="upload">
+          <label class="upload target-upload">
             <input id="imageInput" type="file" accept="image/*" capture="user">
-            <span>Choose image</span>
+            <span>Target image</span>
+          </label>
+          <label class="upload source-upload">
+            <input id="sourceFaceInput" type="file" accept="image/*">
+            <span>Source face</span>
           </label>
         </div>
       </header>

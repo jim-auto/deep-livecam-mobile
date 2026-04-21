@@ -7,6 +7,7 @@ const cameraVideo = document.querySelector("#cameraVideo");
 const cameraButton = document.querySelector("#cameraButton");
 const captureButton = document.querySelector("#captureButton");
 const imageInput = document.querySelector("#imageInput");
+const sourceFaceInput = document.querySelector("#sourceFaceInput");
 const runButton = document.querySelector("#runButton");
 const overlayStrength = document.querySelector("#overlayStrength");
 const backendSelect = document.querySelector("#backendSelect");
@@ -17,7 +18,7 @@ const resultTab = document.querySelector("#resultTab");
 const sourceTab = document.querySelector("#sourceTab");
 const resultPanel = document.querySelector("#resultPanel");
 const sourcePanel = document.querySelector("#sourcePanel");
-const syntheticSourceFace = createSyntheticSourceFace();
+let selectedSourceFace = createSyntheticSourceFace();
 
 const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
 const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
@@ -338,7 +339,7 @@ class CanvasOverlayFaceSwapper {
         face,
         label: `pseudo-swap-${index + 1}`,
         stroke: "#0f766e",
-        source: syntheticSourceFace,
+        source: selectedSourceFace,
         strength,
       })),
       engineName: `${detectorName} + pseudo-swap`,
@@ -405,6 +406,19 @@ imageInput.addEventListener("change", async (event) => {
     runPipeline();
   } catch (error) {
     statusText.textContent = `Could not load image: ${error.message}`;
+  }
+});
+
+sourceFaceInput.addEventListener("change", async (event) => {
+  const [file] = event.target.files;
+  if (!file) return;
+
+  try {
+    selectedSourceFace = await createSourceFaceTexture(file);
+    await runPipeline();
+    statusText.textContent = `Using source face: ${file.name}`;
+  } catch (error) {
+    statusText.textContent = `Could not load source face: ${error.message}`;
   }
 });
 
@@ -977,6 +991,33 @@ function createSyntheticSourceFace() {
   ctx.ellipse(206, 284, 6, 4, 0, 0, Math.PI * 2);
   ctx.ellipse(318, 284, 6, 4, 0, 0, Math.PI * 2);
   ctx.fill();
+
+  return canvas;
+}
+
+async function createSourceFaceTexture(file) {
+  const frame = await loadImageFrame(file);
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 640;
+  const ctx = canvas.getContext("2d");
+
+  ctx.fillStyle = "#dbe4ee";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const scale = Math.max(canvas.width / frame.width, canvas.height / frame.height);
+  const drawWidth = frame.width * scale;
+  const drawHeight = frame.height * scale;
+  const drawX = (canvas.width - drawWidth) / 2;
+  const drawY = (canvas.height - drawHeight) / 2;
+  ctx.drawImage(frame.image, drawX, drawY, drawWidth, drawHeight);
+
+  const vignette = ctx.createRadialGradient(256, 300, 80, 256, 320, 340);
+  vignette.addColorStop(0, "rgba(255, 255, 255, 0)");
+  vignette.addColorStop(0.72, "rgba(255, 255, 255, 0)");
+  vignette.addColorStop(1, "rgba(15, 23, 42, 0.22)");
+  ctx.fillStyle = vignette;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   return canvas;
 }
