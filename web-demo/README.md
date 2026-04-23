@@ -13,8 +13,13 @@ The current demo runs a buildless browser pipeline:
 3. Detect live camera landmarks with MediaPipe Face Landmarker when available.
 4. Use eye, nose, mouth, and face-oval landmarks to align and mask the pseudo
    swap face.
-5. Smooth live landmarks over time and feather the mask edge for a less rigid
+5. Smooth live landmarks over time, color-match the pseudo source texture with a
+   lightweight average-color tint, and feather the mask edge for a less rigid
    overlay.
+
+The controls also show a compact active source preview, and the runtime status
+calls out MediaPipe loading, fallback mode, and no-face detection without
+adding a larger diagnostics panel.
 
 Target and source images are processed locally in the browser. This static demo
 does not upload them or save camera frames.

@@ -1,4 +1,6 @@
 <resources>
     <string name="app_name">Deep LiveCam Mobile</string>
     <string name="pick_image">Pick Image</string>
+    <string name="open_camera">Open Camera</string>
+    <string name="stop_camera">Stop Camera</string>
 </resources>

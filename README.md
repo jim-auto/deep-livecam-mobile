@@ -33,7 +33,7 @@ Web, WebGPU, WebGL, or MediaPipe.
 
 The project is in initial skeleton state.
 
-- Android: Kotlin app shell with still-image input and dummy face swap overlay.
+- Android: Kotlin app shell with still-image input, CameraX front-camera preview, lightweight face detection, and dummy face swap overlay.
 - Core: platform-neutral Kotlin pipeline contracts and deterministic dummy implementations.
 - Web demo: static upload, smartphone camera capture, MediaPipe face landmarks for live camera, and pseudo swap rendering.
 - Models: no real model files are included.
@@ -50,10 +50,27 @@ docs/       Design notes and experiment tracking
 
 ## Android app
 
-The Android app is Kotlin-based and intentionally small. It uses Android framework
-APIs only, opens a still image through `ACTION_OPEN_DOCUMENT`, converts the image
-metadata into an `ImageFrame`, runs `DefaultFrameProcessor`, and renders the
-dummy overlay.
+The Android app is Kotlin-based and intentionally small. It keeps the still-image
+path through `ACTION_OPEN_DOCUMENT`, adds a CameraX front-camera preview, routes
+live frame metadata into `DefaultFrameProcessor`, uses a lightweight Android face
+detector when pixel data is available, and renders the dummy overlay
+on top of both still images and the live preview. The live path also applies a
+small amount of temporal smoothing and aligns CameraX analysis rotation with the
+preview transform so the overlay is less jumpy.
+
+Build prerequisites:
+
+- JDK 17
+- Android SDK with API 35 platform packages
+
+Build commands:
+
+- Windows: `.\gradlew.bat :core:build`
+- Windows: `.\gradlew.bat :app:assembleDebug`
+- macOS/Linux: `./gradlew :core:build`
+- macOS/Linux: `./gradlew :app:assembleDebug`
+
+At runtime, the app asks for camera permission before opening the live preview.
 
 Current Android extension points:
 
@@ -62,8 +79,8 @@ Current Android extension points:
 - `FrameProcessor`
 - `ModelRunner`
 
-Near-term Android work should add CameraX preview, frame rotation/mirroring
-handling, a lightweight face detector, and a real model runtime experiment.
+Near-term Android work should improve live frame rotation/mirroring handling,
+tune detector quality and overlay placement, and evaluate a real model runtime experiment.
 
 ## Web demo
 
@@ -91,8 +108,8 @@ uploaded by this static demo.
 
 ## Roadmap
 
-1. Add CameraX preview and route live frames into the Android processor.
-2. Replace the dummy detector with a lightweight face detector.
+1. Replace the dummy detector with a lightweight face detector.
+2. Improve live frame rotation, mirroring, and overlay calibration.
 3. Evaluate ONNX Runtime Mobile, TensorFlow Lite, and MediaPipe for Android.
 4. Add model download/checksum handling outside the initial APK.
 5. Improve color matching, mask quality, and temporal stability.

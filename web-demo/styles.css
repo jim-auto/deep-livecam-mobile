@@ -161,7 +161,7 @@ canvas {
 
 .controls {
   display: grid;
-  grid-template-columns: minmax(170px, 1fr) minmax(170px, 1fr) auto minmax(180px, 1fr);
+  grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr) minmax(190px, 1fr) auto minmax(180px, 1fr);
   gap: 14px;
   align-items: end;
   margin-top: 16px;
@@ -177,6 +177,13 @@ canvas {
 }
 
 .control-group label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.control-label {
+  margin: 0;
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
@@ -203,6 +210,49 @@ select {
 
 #status {
   margin: 0;
+}
+
+.source-preview-group {
+  min-width: 0;
+}
+
+.source-preview-card {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+#sourcePreview {
+  width: 72px;
+  height: 72px;
+  aspect-ratio: 1 / 1;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #e7edf3;
+}
+
+.source-preview-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+
+#sourcePreviewState {
+  font-size: 0.92rem;
+}
+
+#sourcePreviewName {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .safety-note {
@@ -292,6 +342,15 @@ select {
 
   .control-group {
     gap: 9px;
+  }
+
+  .source-preview-card {
+    min-height: 64px;
+  }
+
+  #sourcePreview {
+    width: 64px;
+    height: 64px;
   }
 
   input[type="range"] {

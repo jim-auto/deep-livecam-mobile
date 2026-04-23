@@ -5,11 +5,11 @@ fun interface FaceDetector {
 }
 
 fun interface FaceSwapper {
-    fun swap(frame: ImageFrame, faces: List<FaceBox>, sourceFace: SourceFace? = null): FaceSwapResult
+    fun swap(frame: ImageFrame, faces: List<FaceBox>, sourceFace: SourceFace?): FaceSwapResult
 }
 
 fun interface FrameProcessor {
-    fun process(frame: ImageFrame, sourceFace: SourceFace? = null): FaceSwapResult
+    fun process(frame: ImageFrame, sourceFace: SourceFace?): FaceSwapResult
 }
 
 fun interface ModelRunner {

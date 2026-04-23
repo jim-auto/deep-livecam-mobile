@@ -68,6 +68,16 @@
           <label for="overlayStrength">Swap amount</label>
           <input id="overlayStrength" type="range" min="0" max="100" value="62">
         </div>
+        <div class="control-group source-preview-group" aria-live="polite">
+          <p class="control-label">Active source</p>
+          <div class="source-preview-card">
+            <canvas id="sourcePreview" width="72" height="72" aria-hidden="true"></canvas>
+            <div class="source-preview-copy">
+              <strong id="sourcePreviewState">synthetic</strong>
+              <span id="sourcePreviewName">Default texture</span>
+            </div>
+          </div>
+        </div>
         <button id="runButton" type="button">Run pseudo swap</button>
         <p id="status" role="status">Ready.</p>
       </section>

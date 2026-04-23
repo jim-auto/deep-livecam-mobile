@@ -14,6 +14,10 @@ const backendSelect = document.querySelector("#backendSelect");
 const sourceMeta = document.querySelector("#sourceMeta");
 const engineMeta = document.querySelector("#engineMeta");
 const statusText = document.querySelector("#status");
+const sourcePreview = document.querySelector("#sourcePreview");
+const sourcePreviewCtx = sourcePreview.getContext("2d");
+const sourcePreviewState = document.querySelector("#sourcePreviewState");
+const sourcePreviewName = document.querySelector("#sourcePreviewName");
 const resultTab = document.querySelector("#resultTab");
 const sourceTab = document.querySelector("#sourceTab");
 const resultPanel = document.querySelector("#resultPanel");
@@ -31,6 +35,17 @@ const FACE_OVAL_LANDMARKS = [
 ];
 const DETECTOR_SMOOTHING_ALPHA = 0.48;
 const LANDMARK_SMOOTHING_ALPHA = 0.36;
+const COLOR_SAMPLE_SIZE = 24;
+const SOURCE_FACE_SAMPLE_REGION = {
+  x: 0.22,
+  y: 0.18,
+  width: 0.56,
+  height: 0.62,
+};
+const colorSampleCanvas = document.createElement("canvas");
+colorSampleCanvas.width = COLOR_SAMPLE_SIZE;
+colorSampleCanvas.height = COLOR_SAMPLE_SIZE;
+const colorSampleCtx = colorSampleCanvas.getContext("2d", { willReadFrequently: true });
 
 class PlaceholderFaceDetector {
   detect(frame) {
@@ -331,7 +346,8 @@ class MediaPipeFaceLandmarker {
 }
 
 class CanvasOverlayFaceSwapper {
-  swap(frame, faces, strength, detectorName) {
+  swap(frame, detection, strength, backend) {
+    const faces = detection.faces;
     return {
       frame,
       faces,
@@ -342,7 +358,15 @@ class CanvasOverlayFaceSwapper {
         source: selectedSourceFace,
         strength,
       })),
-      engineName: `${detectorName} + pseudo-swap`,
+      engineName: `${formatEngineLabel(detection.engineName)} + pseudo-swap`,
+      runtime: {
+        requestedBackend: backend.key,
+        requestedLabel: backend.label,
+        detectionEngineName: detection.engineName,
+        ready: detection.ready !== false,
+        note: detection.note || "",
+        frameIsLive: Boolean(frame.live),
+      },
     };
   }
 }
@@ -354,21 +378,15 @@ const faceLandmarker = new MediaPipeFaceLandmarker(fallbackDetector);
 const pipeline = {
   swapper: new CanvasOverlayFaceSwapper(),
   async run(frame) {
-    const detector = getSelectedDetector();
-    const detection = await detector.detect(frame);
-    return this.swapper.swap(
-      frame,
-      detection.faces,
-      Number(overlayStrength.value) / 100,
-      detection.engineName,
-    );
+    const backend = getSelectedBackend();
+    const detection = await backend.detector.detect(frame);
+    return this.swapper.swap(frame, detection, Number(overlayStrength.value) / 100, backend);
   },
 };
 
 let currentFrame = createSampleFrame();
 let cameraStream = null;
 let liveFrameRequest = 0;
-let lastLiveStatusAt = 0;
 let pipelineBusy = false;
 let lastPipelineResult = null;
 
@@ -386,10 +404,10 @@ sourceTab.addEventListener("click", () => setActiveView("source"));
 backendSelect.addEventListener("change", () => {
   if (backendSelect.value === "landmarker") {
     faceLandmarker.warmUp();
-    statusText.textContent = "Loading MediaPipe face landmarker...";
+    setStatus("Loading MediaPipe face landmarker...");
   } else if (backendSelect.value === "mediapipe") {
     mediaPipeDetector.warmUp();
-    statusText.textContent = "Loading MediaPipe face detector...";
+    setStatus("Loading MediaPipe face detector...");
   }
   runPipeline();
 });
@@ -405,7 +423,7 @@ imageInput.addEventListener("change", async (event) => {
     drawSource(currentFrame);
     runPipeline();
   } catch (error) {
-    statusText.textContent = `Could not load image: ${error.message}`;
+    setStatus(`Could not load image: ${error.message}`);
   }
 });
 
@@ -415,10 +433,11 @@ sourceFaceInput.addEventListener("change", async (event) => {
 
   try {
     selectedSourceFace = await createSourceFaceTexture(file);
+    drawSourcePreview();
     await runPipeline();
-    statusText.textContent = `Using source face: ${file.name}`;
+    setStatus(`Using source face: ${file.name}`);
   } catch (error) {
-    statusText.textContent = `Could not load source face: ${error.message}`;
+    setStatus(`Could not load source face: ${error.message}`);
   }
 });
 
@@ -426,17 +445,18 @@ runButton.addEventListener("click", () => runPipeline());
 overlayStrength.addEventListener("input", () => runPipeline({ silent: Boolean(cameraStream) }));
 
 drawSource(currentFrame);
+drawSourcePreview();
 runPipeline();
 faceLandmarker.warmUp();
 
 async function startCamera() {
   if (!navigator.mediaDevices?.getUserMedia) {
-    statusText.textContent = "Camera API is not available in this browser.";
+    setStatus("Camera API is not available in this browser.");
     return;
   }
 
   if (!window.isSecureContext) {
-    statusText.textContent = "Camera access needs HTTPS. Use GitHub Pages or localhost.";
+    setStatus("Camera access needs HTTPS. Use GitHub Pages or localhost.");
     return;
   }
 
@@ -456,14 +476,14 @@ async function startCamera() {
 
     cameraButton.textContent = "Stop camera";
     captureButton.disabled = false;
-    statusText.textContent = "Camera running with pseudo swap pipeline.";
+    setStatus("Camera running with pseudo swap pipeline.");
     setActiveView("result");
     startLiveLoop();
   } catch (error) {
     if (cameraStream) {
       stopCamera({ silent: true });
     }
-    statusText.textContent = `Could not open camera: ${error.message}`;
+    setStatus(`Could not open camera: ${error.message}`);
   }
 }
 
@@ -485,7 +505,7 @@ function stopCamera(options = {}) {
   captureButton.disabled = true;
 
   if (!silent) {
-    statusText.textContent = "Camera stopped.";
+    setStatus("Camera stopped.");
   }
 }
 
@@ -506,12 +526,6 @@ function startLiveLoop() {
       } else if (lastPipelineResult) {
         drawResult(lastPipelineResult);
       }
-
-      const now = performance.now();
-      if (now - lastLiveStatusAt > 1000) {
-        statusText.textContent = `Live ${engineMeta.textContent}: ${frame.width}x${frame.height}.`;
-        lastLiveStatusAt = now;
-      }
     }
 
     liveFrameRequest = requestAnimationFrame(render);
@@ -523,7 +537,7 @@ function startLiveLoop() {
 function captureCameraFrame() {
   const frame = frameFromVideo();
   if (!frame) {
-    statusText.textContent = "Camera frame is not ready yet.";
+    setStatus("Camera frame is not ready yet.");
     return;
   }
 
@@ -543,7 +557,7 @@ function captureCameraFrame() {
   stopCamera({ silent: true });
   drawSource(currentFrame);
   runPipeline();
-  statusText.textContent = `Captured ${snapshot.width}x${snapshot.height} from camera.`;
+  setStatus(`Captured ${snapshot.width}x${snapshot.height} from camera.`);
 }
 
 async function runPipeline(options = {}) {
@@ -560,12 +574,9 @@ async function runPipeline(options = {}) {
 
     const elapsed = Math.max(1, Math.round(performance.now() - startedAt));
     engineMeta.textContent = result.engineName;
-
-    if (!silent) {
-      statusText.textContent = `Detected ${result.faces.length} face candidate. Rendered in ${elapsed}ms.`;
-    }
+    setStatus(describeRuntimeStatus(result, elapsed, { silent }));
   } catch (error) {
-    statusText.textContent = `Pipeline failed: ${error.message}`;
+    setStatus(`Pipeline failed: ${error.message}`);
   } finally {
     pipelineBusy = false;
   }
@@ -578,10 +589,14 @@ function drawResult(result) {
   renderOverlays(afterCtx, result);
 }
 
-function getSelectedDetector() {
-  if (backendSelect.value === "landmarker") return faceLandmarker;
-  if (backendSelect.value === "mediapipe") return mediaPipeDetector;
-  return fallbackDetector;
+function getSelectedBackend() {
+  if (backendSelect.value === "landmarker") {
+    return { key: "landmarker", label: "MediaPipe face landmarker", detector: faceLandmarker };
+  }
+  if (backendSelect.value === "mediapipe") {
+    return { key: "mediapipe", label: "MediaPipe face detector", detector: mediaPipeDetector };
+  }
+  return { key: "placeholder", label: "Center fallback", detector: fallbackDetector };
 }
 
 function setActiveView(view) {
@@ -599,6 +614,29 @@ function drawSource(frame) {
   beforeCtx.clearRect(0, 0, frame.width, frame.height);
   drawFrameImage(beforeCtx, frame);
   sourceMeta.textContent = frame.live ? `live ${frame.width}x${frame.height}` : `${frame.width}x${frame.height}`;
+}
+
+function drawSourcePreview(sourceFace = selectedSourceFace) {
+  const previewSize = sourcePreview.width;
+  sourcePreviewCtx.clearRect(0, 0, previewSize, previewSize);
+  sourcePreviewCtx.fillStyle = "#e7edf3";
+  sourcePreviewCtx.fillRect(0, 0, previewSize, previewSize);
+
+  const scale = Math.max(previewSize / sourceFace.texture.width, previewSize / sourceFace.texture.height);
+  const drawWidth = sourceFace.texture.width * scale;
+  const drawHeight = sourceFace.texture.height * scale;
+  const drawX = (previewSize - drawWidth) / 2;
+  const drawY = (previewSize - drawHeight) / 2;
+  sourcePreviewCtx.drawImage(sourceFace.texture, drawX, drawY, drawWidth, drawHeight);
+
+  sourcePreviewState.textContent = sourceFace.kind;
+  sourcePreviewName.textContent = sourceFace.name;
+}
+
+function setStatus(message) {
+  if (statusText.textContent !== message) {
+    statusText.textContent = message;
+  }
 }
 
 function ensureCanvasSize(canvas, width, height) {
@@ -628,6 +666,10 @@ function wait(ms) {
 
 function clamp01(value) {
   return Math.min(1, Math.max(0, value));
+}
+
+function clamp(min, value, max) {
+  return Math.min(max, Math.max(min, value));
 }
 
 function expandBounds(bounds, expandX, expandY) {
@@ -748,9 +790,12 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   const rotation = alignment?.rotation || 0;
   const blurRadius = Math.max(10, frame.width / 96);
   const maskPoints = toCanvasMaskPoints(overlay.face.mask?.points, frame);
+  const targetAverage = sampleAverageColor(frame.image, getTargetFaceSampleRegion(rect, frame));
+  const colorAdjustment = createColorAdjustment(overlay.source.averageColor, targetAverage);
+  const baseOpacity = 0.26 + overlay.strength * 0.74;
 
   ctx.save();
-  ctx.globalAlpha = 0.26 + overlay.strength * 0.74;
+  ctx.globalAlpha = baseOpacity;
   ctx.shadowColor = "rgba(15, 23, 42, 0.28)";
   ctx.shadowBlur = blurRadius;
   ctx.shadowOffsetY = Math.max(2, frame.width / 320);
@@ -758,17 +803,34 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   ctx.clip();
   ctx.translate(centerX, centerY);
   ctx.rotate(rotation);
-  ctx.drawImage(overlay.source, -faceWidth / 2, -faceHeight / 2, faceWidth, faceHeight);
+  ctx.filter = `brightness(${colorAdjustment.brightness.toFixed(3)}) saturate(${colorAdjustment.saturation.toFixed(3)})`;
+  ctx.drawImage(overlay.source.texture, -faceWidth / 2, -faceHeight / 2, faceWidth, faceHeight);
+  ctx.filter = "none";
+  ctx.globalCompositeOperation = "source-atop";
+  ctx.globalAlpha = baseOpacity * colorAdjustment.tintOpacity;
+  ctx.fillStyle = toCssRgb(colorAdjustment.tintColor);
+  ctx.fillRect(-faceWidth / 2, -faceHeight / 2, faceWidth, faceHeight);
   ctx.restore();
 
   ctx.save();
-  ctx.globalAlpha = overlay.strength * 0.18;
-  ctx.fillStyle = "#f2ad98";
+  ctx.globalAlpha = overlay.strength * (0.08 + colorAdjustment.tintOpacity * 0.4);
+  ctx.fillStyle = toCssRgb(colorAdjustment.tintColor);
   applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
   ctx.fill();
   ctx.restore();
 
-  drawFeatheredMaskEdge(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation, frame, overlay.strength);
+  drawFeatheredMaskEdge(
+    ctx,
+    maskPoints,
+    centerX,
+    centerY,
+    faceWidth,
+    faceHeight,
+    rotation,
+    frame,
+    overlay.strength,
+    colorAdjustment.tintColor,
+  );
 
   ctx.save();
   ctx.globalAlpha = 0.22 + overlay.strength * 0.32;
@@ -779,7 +841,7 @@ function drawPseudoSwap(ctx, overlay, rect, frame) {
   ctx.restore();
 }
 
-function drawFeatheredMaskEdge(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation, frame, strength) {
+function drawFeatheredMaskEdge(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation, frame, strength, tintColor) {
   const blur = Math.max(2, frame.width / 520);
   const wideStroke = Math.max(12, frame.width / 70);
   const narrowStroke = Math.max(4, frame.width / 210);
@@ -787,7 +849,7 @@ function drawFeatheredMaskEdge(ctx, maskPoints, centerX, centerY, faceWidth, fac
   ctx.save();
   ctx.globalAlpha = 0.16 + strength * 0.18;
   ctx.filter = `blur(${blur}px)`;
-  ctx.strokeStyle = "rgba(242, 173, 152, 0.72)";
+  ctx.strokeStyle = toCssRgba(tintColor, 0.72);
   ctx.lineWidth = wideStroke;
   applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight, rotation);
   ctx.stroke();
@@ -992,7 +1054,10 @@ function createSyntheticSourceFace() {
   ctx.ellipse(318, 284, 6, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  return canvas;
+  return createSourceFaceAsset(canvas, {
+    kind: "synthetic",
+    name: "Default texture",
+  });
 }
 
 async function createSourceFaceTexture(file) {
@@ -1019,7 +1084,187 @@ async function createSourceFaceTexture(file) {
   ctx.fillStyle = vignette;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  return canvas;
+  return createSourceFaceAsset(canvas, {
+    kind: "selected",
+    name: file.name,
+  });
+}
+
+function createSourceFaceAsset(texture, options = {}) {
+  return {
+    texture,
+    kind: options.kind || "selected",
+    name: options.name || "Source image",
+    averageColor: sampleAverageColor(texture, scaleNormalizedRegion(texture, SOURCE_FACE_SAMPLE_REGION)),
+  };
+}
+
+function scaleNormalizedRegion(imageSource, normalizedRegion) {
+  const dimensions = getDrawableSize(imageSource);
+  return {
+    x: dimensions.width * normalizedRegion.x,
+    y: dimensions.height * normalizedRegion.y,
+    width: dimensions.width * normalizedRegion.width,
+    height: dimensions.height * normalizedRegion.height,
+  };
+}
+
+function getTargetFaceSampleRegion(rect, frame) {
+  const width = rect.width * 0.46;
+  const height = rect.height * 0.52;
+  const sourceX = rect.x + (rect.width - width) / 2;
+  const x = frame.mirrored ? frame.width - sourceX - width : sourceX;
+  const y = rect.y + rect.height * 0.22;
+  return {
+    x: clamp(0, x, Math.max(0, frame.width - width)),
+    y: clamp(0, y, Math.max(0, frame.height - height)),
+    width,
+    height,
+  };
+}
+
+function sampleAverageColor(imageSource, region) {
+  const dimensions = getDrawableSize(imageSource);
+  if (!dimensions.width || !dimensions.height) return null;
+
+  const x = clamp(0, Math.round(region?.x ?? 0), Math.max(0, dimensions.width - 1));
+  const y = clamp(0, Math.round(region?.y ?? 0), Math.max(0, dimensions.height - 1));
+  const width = Math.max(1, Math.min(dimensions.width - x, Math.round(region?.width ?? dimensions.width)));
+  const height = Math.max(1, Math.min(dimensions.height - y, Math.round(region?.height ?? dimensions.height)));
+
+  colorSampleCtx.setTransform(1, 0, 0, 1, 0, 0);
+  colorSampleCtx.globalAlpha = 1;
+  colorSampleCtx.globalCompositeOperation = "source-over";
+  colorSampleCtx.filter = "none";
+  colorSampleCtx.clearRect(0, 0, COLOR_SAMPLE_SIZE, COLOR_SAMPLE_SIZE);
+  colorSampleCtx.drawImage(imageSource, x, y, width, height, 0, 0, COLOR_SAMPLE_SIZE, COLOR_SAMPLE_SIZE);
+
+  const { data } = colorSampleCtx.getImageData(0, 0, COLOR_SAMPLE_SIZE, COLOR_SAMPLE_SIZE);
+  let red = 0;
+  let green = 0;
+  let blue = 0;
+  let total = 0;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const alpha = data[index + 3] / 255;
+    if (alpha <= 0) continue;
+    red += data[index] * alpha;
+    green += data[index + 1] * alpha;
+    blue += data[index + 2] * alpha;
+    total += alpha;
+  }
+
+  if (!total) return null;
+
+  const average = {
+    r: red / total,
+    g: green / total,
+    b: blue / total,
+  };
+  return {
+    ...average,
+    luma: average.r * 0.2126 + average.g * 0.7152 + average.b * 0.0722,
+  };
+}
+
+function getDrawableSize(imageSource) {
+  return {
+    width: imageSource.videoWidth || imageSource.naturalWidth || imageSource.width || 0,
+    height: imageSource.videoHeight || imageSource.naturalHeight || imageSource.height || 0,
+  };
+}
+
+function createColorAdjustment(sourceAverage, targetAverage) {
+  if (!sourceAverage || !targetAverage) {
+    return {
+      brightness: 1,
+      saturation: 1,
+      tintOpacity: 0.12,
+      tintColor: { r: 242, g: 173, b: 152 },
+    };
+  }
+
+  const brightness = clamp(0.88, targetAverage.luma / Math.max(40, sourceAverage.luma), 1.14);
+  const sourceChroma = measureChroma(sourceAverage);
+  const targetChroma = measureChroma(targetAverage);
+  const saturation = clamp(0.9, targetChroma / Math.max(10, sourceChroma), 1.12);
+  const tintColor = blendColor(sourceAverage, targetAverage, 0.68);
+  const tintOpacity = clamp(0.06, colorDistance(sourceAverage, targetAverage) / 255 * 0.18, 0.2);
+
+  return {
+    brightness,
+    saturation,
+    tintOpacity,
+    tintColor,
+  };
+}
+
+function measureChroma(color) {
+  return (
+    Math.abs(color.r - color.luma)
+    + Math.abs(color.g - color.luma)
+    + Math.abs(color.b - color.luma)
+  ) / 3;
+}
+
+function blendColor(sourceColor, targetColor, weight) {
+  return {
+    r: Math.round(lerp(sourceColor.r, targetColor.r, weight)),
+    g: Math.round(lerp(sourceColor.g, targetColor.g, weight)),
+    b: Math.round(lerp(sourceColor.b, targetColor.b, weight)),
+  };
+}
+
+function colorDistance(first, second) {
+  return Math.hypot(first.r - second.r, first.g - second.g, first.b - second.b) / Math.sqrt(3);
+}
+
+function toCssRgb(color) {
+  return `rgb(${Math.round(color.r)} ${Math.round(color.g)} ${Math.round(color.b)})`;
+}
+
+function toCssRgba(color, alpha) {
+  return `rgba(${Math.round(color.r)}, ${Math.round(color.g)}, ${Math.round(color.b)}, ${alpha})`;
+}
+
+function formatEngineLabel(engineName) {
+  if (engineName === "mediapipe-face-landmarker" || engineName === "landmarker-no-face" || engineName === "landmarker-loading") {
+    return "MediaPipe face landmarker";
+  }
+  if (engineName === "mediapipe-face-detector" || engineName === "mediapipe-no-face" || engineName === "mediapipe-loading") {
+    return "MediaPipe face detector";
+  }
+  if (engineName === "center-fallback" || engineName === "center-fallback-image") {
+    return "Center fallback";
+  }
+  return engineName.replace(/-/g, " ");
+}
+
+function describeRuntimeStatus(result, elapsed, options = {}) {
+  const { silent = false } = options;
+  const runtime = result.runtime;
+
+  if (!runtime.ready && runtime.note) {
+    return `${runtime.requestedLabel} failed. Using center fallback.`;
+  }
+  if (!runtime.ready) {
+    return `Loading ${runtime.requestedLabel}... Using center fallback for now.`;
+  }
+  if (runtime.requestedBackend !== "placeholder" && runtime.detectionEngineName === "center-fallback-image") {
+    return "Using center fallback for still images.";
+  }
+  if (runtime.requestedBackend !== "placeholder" && runtime.detectionEngineName === "center-fallback") {
+    return "Using center fallback.";
+  }
+  if (!result.faces.length) {
+    return "No face detected. Keep your face centered.";
+  }
+  if (silent && runtime.frameIsLive) {
+    return `Live ${formatEngineLabel(runtime.detectionEngineName)}.`;
+  }
+
+  const faceLabel = result.faces.length === 1 ? "face candidate" : "face candidates";
+  return `Detected ${result.faces.length} ${faceLabel}. Rendered in ${elapsed}ms.`;
 }
 
 function toCanvasRect(face, frame) {
