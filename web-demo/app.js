@@ -70,18 +70,18 @@ class PlaceholderFaceDetector {
 class MediaPipeFaceDetector {
   constructor(fallbackDetector) {
     this.fallbackDetector = fallbackDetector;
-    this.detector = null;
+    this.videoDetector = null;
+    this.imageDetector = null;
     this.loadingPromise = null;
     this.failedReason = "";
     this.lastLiveFaces = null;
     this.lastLiveEngineName = "mediapipe-face-detector";
     this.lastLiveDetectionAt = 0;
     this.minLiveIntervalMs = 95;
-    this.mode = "VIDEO";
   }
 
   warmUp() {
-    if (this.detector || this.loadingPromise || this.failedReason) return;
+    if (this.videoDetector || this.imageDetector || this.loadingPromise || this.failedReason) return;
     this.loadingPromise = this.load().catch((error) => {
       this.failedReason = error.message || "MediaPipe failed to load";
       return null;
@@ -91,11 +91,13 @@ class MediaPipeFaceDetector {
   async detect(frame) {
     this.warmUp();
 
-    if (!this.detector) {
+    const detector = frame.live ? this.videoDetector : this.imageDetector;
+    if (!detector) {
       if (this.loadingPromise) {
         await Promise.race([this.loadingPromise, wait(0)]);
       }
-      if (!this.detector) {
+      const activeDetector = frame.live ? this.videoDetector : this.imageDetector;
+      if (!activeDetector) {
         const fallback = this.fallbackDetector.detect(frame);
         return {
           ...fallback,
@@ -116,7 +118,7 @@ class MediaPipeFaceDetector {
         };
       }
 
-      const result = this.detector.detectForVideo(frame.image, now);
+      const result = this.videoDetector.detectForVideo(frame.image, now);
       const rawFaces = this.toFaceBoxes(result, frame);
       const faces = smoothFaceList(this.lastLiveFaces, rawFaces, DETECTOR_SMOOTHING_ALPHA);
       this.lastLiveFaces = faces;
@@ -129,10 +131,11 @@ class MediaPipeFaceDetector {
       };
     }
 
-    const fallback = this.fallbackDetector.detect(frame);
+    const result = this.imageDetector.detect(frame.image);
+    const faces = this.toFaceBoxes(result, frame, getDrawableSize(frame.image));
     return {
-      ...fallback,
-      engineName: "center-fallback-image",
+      faces,
+      engineName: faces.length ? "mediapipe-face-detector-image" : "mediapipe-no-face-image",
       ready: true,
     };
   }
@@ -140,12 +143,21 @@ class MediaPipeFaceDetector {
   async load() {
     const vision = await import(MEDIAPIPE_TASKS_URL);
     const fileset = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
-    this.detector = await this.createDetector(vision, fileset, "GPU").catch(() => {
-      return this.createDetector(vision, fileset);
+    const [videoDetector, imageDetector] = await Promise.all([
+      this.createDetectorWithFallback(vision, fileset, "VIDEO"),
+      this.createDetectorWithFallback(vision, fileset, "IMAGE"),
+    ]);
+    this.videoDetector = videoDetector;
+    this.imageDetector = imageDetector;
+  }
+
+  createDetectorWithFallback(vision, fileset, runningMode) {
+    return this.createDetector(vision, fileset, runningMode, "GPU").catch(() => {
+      return this.createDetector(vision, fileset, runningMode);
     });
   }
 
-  createDetector(vision, fileset, delegate) {
+  createDetector(vision, fileset, runningMode, delegate) {
     const baseOptions = {
       modelAssetPath: BLAZE_FACE_MODEL_URL,
     };
@@ -155,14 +167,16 @@ class MediaPipeFaceDetector {
 
     return vision.FaceDetector.createFromOptions(fileset, {
       baseOptions,
-      runningMode: this.mode,
+      runningMode,
       minDetectionConfidence: 0.5,
       minSuppressionThreshold: 0.3,
     });
   }
 
-  toFaceBoxes(result, frame) {
+  toFaceBoxes(result, frame, dimensions = frame) {
     const detections = result?.detections || [];
+    const drawableWidth = dimensions.width || frame.width;
+    const drawableHeight = dimensions.height || frame.height;
     return detections
       .map((detection) => {
         const box = detection.boundingBox;
@@ -170,11 +184,11 @@ class MediaPipeFaceDetector {
 
         const originX = box.originX ?? box.origin_x ?? 0;
         const originY = box.originY ?? box.origin_y ?? 0;
-        const width = clamp01(box.width / frame.width);
-        const height = clamp01(box.height / frame.height);
-        const rawX = clamp01(originX / frame.width);
+        const width = clamp01(box.width / drawableWidth);
+        const height = clamp01(box.height / drawableHeight);
+        const rawX = clamp01(originX / drawableWidth);
         const x = frame.mirrored ? clamp01(1 - rawX - width) : rawX;
-        const y = clamp01(originY / frame.height);
+        const y = clamp01(originY / drawableHeight);
         const score = detection.categories?.[0]?.score ?? 0.5;
         return {
           x,
@@ -191,18 +205,18 @@ class MediaPipeFaceDetector {
 class MediaPipeFaceLandmarker {
   constructor(fallbackDetector) {
     this.fallbackDetector = fallbackDetector;
-    this.landmarker = null;
+    this.videoLandmarker = null;
+    this.imageLandmarker = null;
     this.loadingPromise = null;
     this.failedReason = "";
     this.lastLiveFaces = null;
     this.lastLiveEngineName = "mediapipe-face-landmarker";
     this.lastLiveDetectionAt = 0;
     this.minLiveIntervalMs = 120;
-    this.mode = "VIDEO";
   }
 
   warmUp() {
-    if (this.landmarker || this.loadingPromise || this.failedReason) return;
+    if (this.videoLandmarker || this.imageLandmarker || this.loadingPromise || this.failedReason) return;
     this.loadingPromise = this.load().catch((error) => {
       this.failedReason = error.message || "Face Landmarker failed to load";
       return null;
@@ -212,11 +226,13 @@ class MediaPipeFaceLandmarker {
   async detect(frame) {
     this.warmUp();
 
-    if (!this.landmarker) {
+    const landmarker = frame.live ? this.videoLandmarker : this.imageLandmarker;
+    if (!landmarker) {
       if (this.loadingPromise) {
         await Promise.race([this.loadingPromise, wait(0)]);
       }
-      if (!this.landmarker) {
+      const activeLandmarker = frame.live ? this.videoLandmarker : this.imageLandmarker;
+      if (!activeLandmarker) {
         const fallback = this.fallbackDetector.detect(frame);
         return {
           ...fallback,
@@ -237,7 +253,7 @@ class MediaPipeFaceLandmarker {
         };
       }
 
-      const result = this.landmarker.detectForVideo(frame.image, now);
+      const result = this.videoLandmarker.detectForVideo(frame.image, now);
       const rawFaces = this.toFaceBoxes(result, frame);
       const faces = smoothFaceList(this.lastLiveFaces, rawFaces, LANDMARK_SMOOTHING_ALPHA);
       this.lastLiveFaces = faces;
@@ -250,10 +266,11 @@ class MediaPipeFaceLandmarker {
       };
     }
 
-    const fallback = this.fallbackDetector.detect(frame);
+    const result = this.imageLandmarker.detect(frame.image);
+    const faces = this.toFaceBoxes(result, frame);
     return {
-      ...fallback,
-      engineName: "center-fallback-image",
+      faces,
+      engineName: faces.length ? "mediapipe-face-landmarker-image" : "landmarker-no-face-image",
       ready: true,
     };
   }
@@ -261,12 +278,21 @@ class MediaPipeFaceLandmarker {
   async load() {
     const vision = await import(MEDIAPIPE_TASKS_URL);
     const fileset = await vision.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_URL);
-    this.landmarker = await this.createLandmarker(vision, fileset, "GPU").catch(() => {
-      return this.createLandmarker(vision, fileset);
+    const [videoLandmarker, imageLandmarker] = await Promise.all([
+      this.createLandmarkerWithFallback(vision, fileset, "VIDEO"),
+      this.createLandmarkerWithFallback(vision, fileset, "IMAGE"),
+    ]);
+    this.videoLandmarker = videoLandmarker;
+    this.imageLandmarker = imageLandmarker;
+  }
+
+  createLandmarkerWithFallback(vision, fileset, runningMode) {
+    return this.createLandmarker(vision, fileset, runningMode, "GPU").catch(() => {
+      return this.createLandmarker(vision, fileset, runningMode);
     });
   }
 
-  createLandmarker(vision, fileset, delegate) {
+  createLandmarker(vision, fileset, runningMode, delegate) {
     const baseOptions = {
       modelAssetPath: FACE_LANDMARKER_MODEL_URL,
     };
@@ -276,7 +302,7 @@ class MediaPipeFaceLandmarker {
 
     return vision.FaceLandmarker.createFromOptions(fileset, {
       baseOptions,
-      runningMode: this.mode,
+      runningMode,
       numFaces: 1,
       minFaceDetectionConfidence: 0.5,
       minFacePresenceConfidence: 0.5,
@@ -434,7 +460,7 @@ sourceFaceInput.addEventListener("change", async (event) => {
     selectedSourceFace = await createSourceFaceTexture(file);
     drawSourcePreview();
     await runPipeline();
-    setStatus(`Using source face: ${file.name}`);
+    setStatus(`Using source face crop: ${file.name}`);
   } catch (error) {
     setStatus(`Could not load source face: ${error.message}`);
   }
@@ -1063,16 +1089,19 @@ async function createSourceFaceTexture(file) {
   canvas.width = 512;
   canvas.height = 640;
   const ctx = canvas.getContext("2d");
-
-  ctx.fillStyle = "#dbe4ee";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-  const scale = Math.max(canvas.width / frame.width, canvas.height / frame.height);
-  const drawWidth = frame.width * scale;
-  const drawHeight = frame.height * scale;
-  const drawX = (canvas.width - drawWidth) / 2;
-  const drawY = (canvas.height - drawHeight) / 2;
-  ctx.drawImage(frame.image, drawX, drawY, drawWidth, drawHeight);
+  const sourceFace = await detectBestSourceFace(frame);
+  const crop = getSourceFaceCropRegion(frame, sourceFace);
+  ctx.drawImage(
+    frame.image,
+    crop.x,
+    crop.y,
+    crop.width,
+    crop.height,
+    0,
+    0,
+    canvas.width,
+    canvas.height,
+  );
 
   const vignette = ctx.createRadialGradient(256, 300, 80, 256, 320, 340);
   vignette.addColorStop(0, "rgba(255, 255, 255, 0)");
@@ -1085,6 +1114,63 @@ async function createSourceFaceTexture(file) {
     kind: "selected",
     name: file.name,
   });
+}
+
+async function detectBestSourceFace(frame) {
+  const primary = await faceLandmarker.detect(frame);
+  const primaryFace = pickMostConfidentFace(primary.faces);
+  if (primaryFace) return primaryFace;
+
+  const secondary = await mediaPipeDetector.detect(frame);
+  const secondaryFace = pickMostConfidentFace(secondary.faces);
+  if (secondaryFace) return secondaryFace;
+
+  return pickMostConfidentFace(fallbackDetector.detect(frame).faces);
+}
+
+function pickMostConfidentFace(faces = []) {
+  if (!faces.length) return null;
+  return [...faces].sort((left, right) => (right.confidence || 0) - (left.confidence || 0))[0];
+}
+
+function getSourceFaceCropRegion(frame, face) {
+  const dimensions = getDrawableSize(frame.image);
+  if (!dimensions.width || !dimensions.height || !face) {
+    return {
+      x: 0,
+      y: 0,
+      width: dimensions.width || frame.width || 1,
+      height: dimensions.height || frame.height || 1,
+    };
+  }
+
+  const targetAspectRatio = 512 / 640;
+  const faceWidth = face.width * dimensions.width;
+  const faceHeight = face.height * dimensions.height;
+  const eyeDistance = face.alignment?.eyeDistance ? face.alignment.eyeDistance * dimensions.width : 0;
+  let cropWidth = Math.max(faceWidth * 1.85, eyeDistance * 3.35, dimensions.width * 0.28);
+  let cropHeight = Math.max(faceHeight * 2.02, dimensions.height * 0.42);
+
+  if (cropWidth / cropHeight < targetAspectRatio) {
+    cropWidth = cropHeight * targetAspectRatio;
+  } else {
+    cropHeight = cropWidth / targetAspectRatio;
+  }
+
+  if (cropWidth > dimensions.width) {
+    cropWidth = dimensions.width;
+    cropHeight = cropWidth / targetAspectRatio;
+  }
+  if (cropHeight > dimensions.height) {
+    cropHeight = dimensions.height;
+    cropWidth = cropHeight * targetAspectRatio;
+  }
+
+  const centerX = (face.alignment?.centerX ?? (face.x + face.width / 2)) * dimensions.width;
+  const centerY = (face.alignment?.centerY ?? (face.y + face.height * 0.56)) * dimensions.height;
+  const x = clamp(0, centerX - cropWidth / 2, Math.max(0, dimensions.width - cropWidth));
+  const y = clamp(0, centerY - cropHeight * 0.42, Math.max(0, dimensions.height - cropHeight));
+  return { x, y, width: cropWidth, height: cropHeight };
 }
 
 function createSourceFaceAsset(texture, options = {}) {
@@ -1225,10 +1311,22 @@ function toCssRgba(color, alpha) {
 }
 
 function formatEngineLabel(engineName) {
-  if (engineName === "mediapipe-face-landmarker" || engineName === "landmarker-no-face" || engineName === "landmarker-loading") {
+  if (
+    engineName === "mediapipe-face-landmarker"
+    || engineName === "mediapipe-face-landmarker-image"
+    || engineName === "landmarker-no-face"
+    || engineName === "landmarker-no-face-image"
+    || engineName === "landmarker-loading"
+  ) {
     return "MediaPipe face landmarker";
   }
-  if (engineName === "mediapipe-face-detector" || engineName === "mediapipe-no-face" || engineName === "mediapipe-loading") {
+  if (
+    engineName === "mediapipe-face-detector"
+    || engineName === "mediapipe-face-detector-image"
+    || engineName === "mediapipe-no-face"
+    || engineName === "mediapipe-no-face-image"
+    || engineName === "mediapipe-loading"
+  ) {
     return "MediaPipe face detector";
   }
   if (engineName === "center-fallback" || engineName === "center-fallback-image") {

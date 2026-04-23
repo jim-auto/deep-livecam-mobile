@@ -9,7 +9,8 @@ Camera mode requires HTTPS, so it is meant to run from GitHub Pages or localhost
 The current demo runs a buildless browser pipeline:
 
 1. Load a sample frame, uploaded target image, or smartphone front camera.
-2. Optionally choose a source face image for the pseudo swap texture.
+2. Optionally choose a source face image; the demo will auto-focus that upload around
+   the most likely face before using it as the pseudo swap texture.
 3. Detect live camera landmarks with MediaPipe Face Landmarker when available.
 4. Use eye, nose, mouth, and face-oval landmarks to align and mask the pseudo
    swap face.
@@ -20,6 +21,10 @@ The current demo runs a buildless browser pipeline:
 When landmark masks are not available, the demo still draws the pseudo swap with
 a rotated ellipse fallback so `Center Fallback` and still-image fallback paths
 remain visibly active.
+
+Uploaded source images also fall back to a centered portrait crop when MediaPipe
+cannot isolate a face, so the live overlay still stays face-sized instead of
+using the entire source frame.
 
 The controls also show a compact active source preview, and the runtime status
 calls out MediaPipe loading, fallback mode, and no-face detection without
