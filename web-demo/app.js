@@ -22,8 +22,6 @@ const resultTab = document.querySelector("#resultTab");
 const sourceTab = document.querySelector("#sourceTab");
 const resultPanel = document.querySelector("#resultPanel");
 const sourcePanel = document.querySelector("#sourcePanel");
-let selectedSourceFace = createSyntheticSourceFace();
-
 const MEDIAPIPE_TASKS_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs";
 const MEDIAPIPE_WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
 const BLAZE_FACE_MODEL_URL = "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/latest/blaze_face_short_range.tflite";
@@ -46,6 +44,7 @@ const colorSampleCanvas = document.createElement("canvas");
 colorSampleCanvas.width = COLOR_SAMPLE_SIZE;
 colorSampleCanvas.height = COLOR_SAMPLE_SIZE;
 const colorSampleCtx = colorSampleCanvas.getContext("2d", { willReadFrequently: true });
+let selectedSourceFace = createSyntheticSourceFace();
 
 class PlaceholderFaceDetector {
   detect(frame) {
