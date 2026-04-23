@@ -878,10 +878,8 @@ function applyFaceClip(ctx, maskPoints, centerX, centerY, faceWidth, faceHeight,
     return;
   }
 
-  ctx.translate(centerX, centerY);
-  ctx.rotate(rotation);
   ctx.beginPath();
-  ctx.ellipse(0, 0, faceWidth / 2, faceHeight / 2, 0, 0, Math.PI * 2);
+  ctx.ellipse(centerX, centerY, faceWidth / 2, faceHeight / 2, rotation, 0, Math.PI * 2);
 }
 
 function drawSmoothClosedPath(ctx, points) {

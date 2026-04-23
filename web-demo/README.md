@@ -17,6 +17,10 @@ The current demo runs a buildless browser pipeline:
    lightweight average-color tint, and feather the mask edge for a less rigid
    overlay.
 
+When landmark masks are not available, the demo still draws the pseudo swap with
+a rotated ellipse fallback so `Center Fallback` and still-image fallback paths
+remain visibly active.
+
 The controls also show a compact active source preview, and the runtime status
 calls out MediaPipe loading, fallback mode, and no-face detection without
 adding a larger diagnostics panel.
